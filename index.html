@@ -1,0 +1,2150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BIGLIGHT PLOT</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+    }
+  </script>
+
+  <style>
+    body { margin: 0; overflow: hidden; font-weight: 500; }
+    
+    /* 텍스트 드래그 및 선택 방지 (입력창 제외) */
+    .no-select {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    input, textarea, select {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+
+    /* 텍스트 드래그(선택) 시 기본 검정 배경에 흰 글씨 적용 */
+    ::-moz-selection { background: #000; color: #fff; }
+    ::selection { background: #000; color: #fff; }
+
+    /* 인쇄 시 화면 백지화 (PDF 불법 복제 방지) */
+    @media print {
+      body { display: none !important; }
+    }
+    
+    /* 스크롤바 디자인 */
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
+    .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: #64748b; }
+    
+    /* 툴팁 */
+    .tooltip-trigger:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #1e293b;
+      color: #cbd5e1;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      white-space: nowrap;
+      z-index: 100;
+      border: 1px solid #334155;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0",
+        "three": "https://esm.sh/three@0.160.0",
+        "three/examples/jsm/controls/OrbitControls.js": "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- 안정적인 PDF.js 버전 사용 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+</head>
+<body class="no-select">
+  
+  <!-- [보안] 스크립트 -->
+  <script>
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', e => {
+      if (
+        e.key === 'F12' || 
+        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
+        (e.ctrlKey && e.key.toUpperCase() === 'U') ||
+        (e.ctrlKey && e.key.toUpperCase() === 'S') ||
+        (e.ctrlKey && e.key.toUpperCase() === 'P')
+      ) {
+        e.preventDefault();
+      }
+    });
+    (function() {
+      const block = function() { try { debugger; } catch (e) {} };
+      setInterval(block, 1000);
+    })();
+  </script>
+
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useRef, useCallback, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      Move, ZoomIn, ZoomOut, Settings2, Plus,
+      Trash2, MousePointer2, GripHorizontal,
+      Lightbulb, CheckSquare, Target, PaintBucket, LayoutTemplate,
+      Layers, Eye, EyeOff, Lock, Unlock, Edit2, Hand,
+      Save, Upload, Printer, Sun, Moon, Maximize2, Copy, ClipboardPaste, Files, Shapes,
+      Sparkles, Loader2, X, FileText, Image as ImageIcon, Link, Unlink, Undo, Redo, Square, Droplet,
+      Box, RotateCcw
+    } from 'lucide-react';
+
+    // --- AI API Helper ---
+    const callGemini = async (prompt, systemInstruction, isJson = false) => {
+      const apiKey = ""; 
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: systemInstruction }] }
+      };
+      if (isJson) payload.generationConfig = { responseMimeType: "application/json" };
+
+      let delay = 1000;
+      for (let i = 0; i < 6; i++) {
+        try {
+          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          if (!res.ok) throw new Error(`API Error: ${res.status}`);
+          const data = await res.json();
+          return data.candidates[0].content.parts[0].text;
+        } catch (error) {
+          if (i === 5) throw error;
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+      }
+    };
+
+    // --- 심볼 정의 ---
+    const FIXTURE_TYPES = {
+      STAGE_PROSCENIUM: {
+        id: 'STAGE_PROSCENIUM', category: 'venue', name: '프로시니엄 (Proscenium)',
+        render: (color = '#fff', width = 500, rotation = 0, thickness = 2, height = 400, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <rect x={-width/2} y={-height/2} width={width} height={height*0.7} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx} />
+            <path d={`M ${-width/2} ${-height/2 + height*0.7} Q 0 ${height/2} ${width/2} ${-height/2 + height*0.7} Z`} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} strokeLinejoin="round" />
+            <line x1={-width/2} y1={-height/2 + height*0.7} x2={width/2} y2={-height/2 + height*0.7} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth="2" strokeDasharray="5 5" />
+          </svg>
+        )
+      },
+      STAGE_THRUST: {
+        id: 'STAGE_THRUST', category: 'venue', name: '돌출 무대 (Thrust)',
+        render: (color = '#fff', width = 500, rotation = 0, thickness = 2, height = 400, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <rect x={-width/2} y={-height/2} width={width} height={height*0.4} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx} />
+            <path d={`M ${-width*0.3} ${-height/2 + height*0.4} L ${width*0.3} ${-height/2 + height*0.4} L ${width*0.3} ${height/2} L ${-width*0.3} ${height/2} Z`} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} strokeLinejoin="round" />
+          </svg>
+        )
+      },
+      STAGE_ARENA: {
+        id: 'STAGE_ARENA', category: 'venue', name: '아레나 (Arena)',
+        render: (color = '#fff', width = 400, rotation = 0, thickness = 2, height = 400, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <ellipse cx="0" cy="0" rx={width/2} ry={height/2} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} />
+            <ellipse cx="0" cy="0" rx={width/2 - 10} ry={height/2 - 10} fill="none" stroke={color !== '#fff' ? color : '#64748b'} strokeWidth="1" strokeDasharray="4 4" />
+          </svg>
+        )
+      },
+      STAGE_BLACKBOX: {
+        id: 'STAGE_BLACKBOX', category: 'venue', name: '블랙박스 (Black Box)',
+        render: (color = '#fff', width = 500, rotation = 0, thickness = 2, height = 500, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <rect x={-width/2} y={-height/2} width={width} height={height} fill={bg || "#1e293b"} stroke={color !== '#fff' ? color : '#64748b'} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx} />
+            <rect x={-width/2 + 10} y={-height/2 + 10} width={width - 20} height={height - 20} fill="none" stroke={color !== '#fff' ? color : '#64748b'} strokeWidth="1" strokeDasharray="4 4" rx={Math.max(0, rx - 10)} />
+          </svg>
+        )
+      },
+      IMAGE: {
+        id: 'IMAGE', category: 'image', name: '이미지 (Image)',
+        render: (color = '#fff', width = 200, rotation = 0, thickness = 2, height = 200, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            {bg && <rect x={-width/2} y={-height/2} width={width} height={height} fill={bg} rx={rx} />}
+            {src ? (
+              <image href={src} x={-width/2} y={-height/2} width={width} height={height} preserveAspectRatio="none" />
+            ) : (
+              <rect x={-width/2} y={-height/2} width={width} height={height} fill={bg || "#cbd5e1"} stroke={color} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx} />
+            )}
+          </svg>
+        )
+      },
+      TEXT: {
+        id: 'TEXT', category: 'memo', name: '자유 텍스트 (Text)',
+        render: (color = '#fff', width = 200, rotation = 0, thickness = 2, height = 50, text = '텍스트 메모', src = '', bg = '', op = 1, dash = '', rx = 0) => {
+          const lines = text.split('\n');
+          const boxW = Math.max(200, width);
+          const boxH = Math.max(50, lines.length * 30 + 20);
+          return (
+            <svg width={boxW} height={boxH} viewBox={`${-boxW/2} ${-boxH/2} ${boxW} ${boxH}`} style={{ overflow: 'visible', opacity: op }}>
+              {(bg || dash) && <rect x={-boxW/2} y={-boxH/2} width={boxW} height={boxH} fill={bg || "transparent"} stroke={dash ? color : "none"} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx || 4} />}
+              {lines.map((line, i) => (
+                <text key={i} x="0" y={(i - (lines.length - 1) / 2) * 32} fill={color} fontSize="32" fontFamily="sans-serif" textAnchor="middle" dominantBaseline="central" fontWeight="bold">{line}</text>
+              ))}
+            </svg>
+          );
+        }
+      },
+      LABEL: {
+        id: 'LABEL', category: 'memo', name: '라벨 박스 (Label Box)',
+        render: (color = '#fff', width = 150, rotation = 0, thickness = 2, height = 40, text = '라벨 메모', src = '', bg = '', op = 1, dash = '', rx = 0) => {
+          const lines = text.split('\n');
+          const boxHeight = Math.max(height, lines.length * 20 + 20);
+          return (
+            <svg width={width} height={boxHeight} viewBox={`${-width/2} ${-boxHeight/2} ${width} ${boxHeight}`} style={{ overflow: 'visible', opacity: op }}>
+              <rect x={-width/2} y={-boxHeight/2} width={width} height={boxHeight} fill={bg || color} fillOpacity={bg ? 1 : 0.15} stroke={color} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx !== undefined ? rx : 4} />
+              {lines.map((line, i) => (
+                <text key={i} x="0" y={(i - (lines.length - 1) / 2) * 20} fill={bg ? color : (color === '#ffffff' ? '#000' : color)} fontSize="16" fontFamily="sans-serif" textAnchor="middle" dominantBaseline="central" fontWeight="bold">{line}</text>
+              ))}
+            </svg>
+          );
+        }
+      },
+      LINE: {
+        id: 'LINE', category: 'shape', name: '선 (Line)',
+        render: (color = '#fff', width = 100, rotation = 0, thickness = 2, height = 20, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height="20" viewBox={`0 -10 ${width} 20`} style={{ overflow: 'visible', opacity: op }}>
+            <line x1="0" y1="0" x2={width} y2="0" stroke={color} strokeWidth={thickness} strokeLinecap="round" strokeDasharray={dash || undefined} />
+          </svg>
+        )
+      },
+      RECTANGLE: {
+        id: 'RECTANGLE', category: 'shape', name: '사각형 (Rectangle)',
+        render: (color = '#fff', width = 100, rotation = 0, thickness = 2, height = 100, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <rect x={-width/2} y={-height/2} width={width} height={height} fill={bg || "none"} stroke={color} strokeWidth={thickness} strokeDasharray={dash || undefined} rx={rx} />
+          </svg>
+        )
+      },
+      CIRCLE: {
+        id: 'CIRCLE', category: 'shape', name: '원/타원 (Circle)',
+        render: (color = '#fff', width = 100, rotation = 0, thickness = 2, height = 100, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <ellipse cx="0" cy="0" rx={width/2} ry={height/2} fill={bg || "none"} stroke={color} strokeWidth={thickness} strokeDasharray={dash || undefined} />
+          </svg>
+        )
+      },
+      CURVE: {
+        id: 'CURVE', category: 'shape', name: '곡선 (Curve)',
+        render: (color = '#fff', width = 100, rotation = 0, thickness = 2, height = 100, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width={width} height={height} viewBox={`${-width/2} ${-height/2} ${width} ${height}`} style={{ overflow: 'visible', opacity: op }}>
+            <path d={`M ${-width/2} ${height/2} Q 0 ${-height/2} ${width/2} ${height/2}`} fill={bg || "none"} stroke={color} strokeWidth={thickness} strokeLinecap="round" strokeDasharray={dash || undefined} />
+          </svg>
+        )
+      },
+      BATTEN: {
+        id: 'BATTEN', category: 'structure', name: '세트 바텐 (Set Batten)',
+        render: (color = '#fff', width = 300, r=0, t=2, h=20, txt='', src='', bg='', op=1, dash='', rx=0) => (
+          <svg width={width} height="20" viewBox={`${-width / 2} -10 ${width} 20`} style={{ overflow: 'visible', opacity: op }}>
+            <rect x={-width / 2} y="-3" width={width} height="6" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} />
+          </svg>
+        )
+      },
+      TRUSS: {
+        id: 'TRUSS', category: 'structure', name: '사각 트러스 (0.6m)',
+        render: (color = '#fff', width = 300, r=0, t=2, h=30, txt='', src='', bg='', op=1, dash='', rx=0) => {
+          const segs = Math.max(1, Math.round(width / 30));
+          const segW = width / segs;
+          let p1 = `M ${-width / 2} -15`; let p2 = `M ${-width / 2} 15`;
+          for (let i = 1; i <= segs; i++) {
+            const x = -width / 2 + i * segW;
+            p1 += ` L ${x} ${i % 2 === 1 ? 15 : -15}`;
+            p2 += ` L ${x} ${i % 2 === 1 ? -15 : 15}`;
+          }
+          return (
+            <svg width={width} height="30" viewBox={`${-width / 2} -15 ${width} 30`} style={{ overflow: 'visible', opacity: op }}>
+              <rect x={-width / 2} y="-15" width={width} height="30" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} />
+              <path d={p1} fill="none" stroke={color} strokeWidth={Math.max(1, t/2)} />
+              <path d={p2} fill="none" stroke={color} strokeWidth={Math.max(1, t/2)} />
+            </svg>
+          );
+        }
+      },
+      TRUSS_300: {
+        id: 'TRUSS_300', category: 'structure', name: '슬림 트러스 (0.3m)',
+        render: (color = '#fff', width = 300, r=0, t=2, h=15, txt='', src='', bg='', op=1, dash='', rx=0) => {
+          const segs = Math.max(1, Math.round(width / 20));
+          const segW = width / segs;
+          let p1 = `M ${-width / 2} -7.5`; let p2 = `M ${-width / 2} 7.5`;
+          for (let i = 1; i <= segs; i++) {
+            const x = -width / 2 + i * segW;
+            p1 += ` L ${x} ${i % 2 === 1 ? 7.5 : -7.5}`;
+            p2 += ` L ${x} ${i % 2 === 1 ? -7.5 : 7.5}`;
+          }
+          return (
+            <svg width={width} height="15" viewBox={`${-width / 2} -7.5 ${width} 15`} style={{ overflow: 'visible', opacity: op }}>
+              <rect x={-width / 2} y="-7.5" width={width} height="15" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} />
+              <path d={p1} fill="none" stroke={color} strokeWidth={Math.max(0.8, t/2)} />
+              <path d={p2} fill="none" stroke={color} strokeWidth={Math.max(0.8, t/2)} />
+            </svg>
+          );
+        }
+      },
+      RULER_H: {
+        id: 'RULER_H', category: 'structure', name: '가로자 (Ruler H, m)',
+        render: (color = '#fff', width = 500, r = 0, t = 2, h = 24, txt = '', src = '', bg = '', op = 1, dash = '', rx = 0) => {
+          const step = 50; // 50px = 1m
+          const count = Math.max(1, Math.round(width / step));
+          return (
+            <svg width={width} height={h + 16} viewBox={`${-width / 2} ${-h / 2 - 2} ${width} ${h + 16}`} style={{ overflow: 'visible', opacity: op }}>
+              <line x1={-width / 2} y1="0" x2={width / 2} y2="0" stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinecap="round" />
+              {Array.from({ length: count + 1 }).map((_, i) => {
+                const x = -width / 2 + i * step;
+                const major = i % 5 === 0;
+                return (
+                  <g key={i}>
+                    <line x1={x} y1={-(major ? h / 2 : h / 4)} x2={x} y2={major ? h / 2 : h / 4} stroke={color} strokeWidth={Math.max(1, t / 2)} />
+                  </g>
+                );
+              })}
+            </svg>
+          );
+        }
+      },
+      RULER_V: {
+        id: 'RULER_V', category: 'structure', name: '세로자 (Ruler V, m)',
+        render: (color = '#fff', width = 500, r = 0, t = 2, h = 24, txt = '', src = '', bg = '', op = 1, dash = '', rx = 0) => {
+          const step = 50; // 50px = 1m
+          const count = Math.max(1, Math.round(width / step));
+          return (
+            <svg width={h + 16} height={width} viewBox={`${-h / 2 - 2} ${-width / 2} ${h + 16} ${width}`} style={{ overflow: 'visible', opacity: op }}>
+              <line x1="0" y1={-width / 2} x2="0" y2={width / 2} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinecap="round" />
+              {Array.from({ length: count + 1 }).map((_, i) => {
+                const y = -width / 2 + i * step;
+                const major = i % 5 === 0;
+                return (
+                  <g key={i}>
+                    <line x1={-(major ? h / 2 : h / 4)} y1={y} x2={major ? h / 2 : h / 4} y2={y} stroke={color} strokeWidth={Math.max(1, t / 2)} />
+                  </g>
+                );
+              })}
+            </svg>
+          );
+        }
+      },
+      ERS: { id: 'ERS', category: 'fixture', name: 'ERS (소스포)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -15 -8 L 5 -8 L 5 -12 L 15 -12 L 15 12 L 5 12 L 5 8 L -15 8 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinejoin="round" /><line x1="-5" y1="-8" x2="-5" y2="8" stroke={color} strokeWidth={t} /><line x1="-15" y1="0" x2="20" y2="0" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      FRESNEL: { id: 'FRESNEL', category: 'fixture', name: '프레넬', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><rect x="-12" y="-12" width="24" height="24" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><path d="M -12 8 L 12 8 M -8 12 L 8 12" fill="none" stroke={color} strokeWidth={t} /><line x1="-20" y1="0" x2="20" y2="0" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      PAR: { id: 'PAR', category: 'fixture', name: '파캔', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><ellipse cx="0" cy="-2" rx="10" ry="14" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -10 -2 L -10 12 L 10 12 L 10 -2" fill="none" stroke={color} strokeWidth={t} /><line x1="-15" y1="0" x2="15" y2="0" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      CYC: { id: 'CYC', category: 'fixture', name: '사이클로라마', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><rect x="-15" y="-10" width="30" height="20" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><path d="M -15 -10 L -15 -15 L 15 -15 L 15 -10" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      STRIPLIGHT: { id: 'STRIPLIGHT', category: 'fixture', name: '스트립 라이트', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><rect x="-18" y="-6" width="36" height="12" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><line x1="-6" y1="-6" x2="-6" y2="6" stroke={color} strokeWidth={t} /><line x1="6" y1="-6" x2="6" y2="6" stroke={color} strokeWidth={t} /></svg>
+      )},
+      SPOT_LIGHT: { id: 'SPOT_LIGHT', category: 'fixture', name: '스팟 라이트', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><path d="M -12 -6 L -2 -6 L 12 -12 L 12 12 L -2 6 L -12 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinejoin="round" /><line x1="-2" y1="-6" x2="-2" y2="6" stroke={color} strokeWidth={t} /></svg>
+      )},
+      ELLIPSOIDAL: { id: 'ELLIPSOIDAL', category: 'fixture', name: '타원형 반사경', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><ellipse cx="-5" cy="0" rx="8" ry="10" fill={bg || "none"} stroke={color} strokeWidth={t} /><path d="M -5 -10 L 15 -6 L 15 6 L -5 10" fill={bg || "none"} stroke={color} strokeWidth={t} strokeLinejoin="round" /><line x1="15" y1="-6" x2="15" y2="6" stroke={color} strokeWidth={t} /></svg>
+      )},
+      FLOOD_LIGHT: { id: 'FLOOD_LIGHT', category: 'fixture', name: '플러드 라이트', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><path d="M -15 -5 L -5 -5 L 15 -15 L 15 15 L -5 5 L -15 5 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinejoin="round" /><line x1="-5" y1="-5" x2="-5" y2="5" stroke={color} strokeWidth={t} /><line x1="5" y1="-10" x2="5" y2="10" stroke={color} strokeWidth={1} /></svg>
+      )},
+      PC_SPOT: { id: 'PC_SPOT', category: 'fixture', name: 'PC 스팟', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><rect x="-12" y="-12" width="24" height="24" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><line x1="-12" y1="12" x2="12" y2="12" stroke={color} strokeWidth={t} /><line x1="-20" y1="0" x2="20" y2="0" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      FOLLOWSPOT: { id: 'FOLLOWSPOT', category: 'fixture', name: '팔로우스팟', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><path d="M -16 -6 L 10 -6 L 16 -8 L 16 8 L 10 6 L -16 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} strokeLinejoin="round" /><circle cx="0" cy="0" r="3" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      BIRDIE: { id: 'BIRDIE', category: 'fixture', name: '버디', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><ellipse cx="0" cy="-2" rx="6" ry="8" fill={bg || "none"} stroke={color} strokeWidth={t} /><path d="M -6 -2 L -6 6 L 6 6 L 6 -2" fill="none" stroke={color} strokeWidth={t} /><line x1="-10" y1="0" x2="10" y2="0" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      MOVING_HEAD_SPOT: { id: 'MOVING_HEAD_SPOT', category: 'fixture', name: '무빙헤드 스팟', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-10" y="6" width="20" height="8" rx={rx || 2} fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -8 6 L -10 -2 L -6 -14 L 6 -14 L 10 -2 L 8 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="-14" r="3" fill={bg || "none"} stroke={color} strokeWidth={Math.max(1, t/2)} /><path d="M -15 -14 A 15 15 0 0 1 15 -14" fill="none" stroke={color} strokeWidth={1} strokeDasharray="2 2" /><path d="M 12 -12 L 15 -14 L 17 -11" fill="none" stroke={color} strokeWidth={1} /><path d="M -12 -12 L -15 -14 L -17 -11" fill="none" stroke={color} strokeWidth={1} /></svg>
+      )},
+      MOVING_HEAD_WASH: { id: 'MOVING_HEAD_WASH', category: 'fixture', name: '무빙헤드 워시', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-10" y="6" width="20" height="8" rx={rx || 2} fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -8 6 L -10 -2 L -6 -10 L 6 -10 L 10 -2 L 8 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="-10" r="5" fill={bg || "none"} stroke={color} strokeWidth={Math.max(1, t/2)} /><circle cx="-3" cy="-11" r="1.5" fill="none" stroke={color} /><circle cx="3" cy="-11" r="1.5" fill="none" stroke={color} /><circle cx="0" cy="-8" r="1.5" fill="none" stroke={color} /></svg>
+      )},
+      MOVING_HEAD_BEAM: { id: 'MOVING_HEAD_BEAM', category: 'fixture', name: '무빙헤드 빔', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-10" y="6" width="20" height="8" rx={rx || 2} fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -8 6 L -10 -2 L -8 -16 L 8 -16 L 10 -2 L 8 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="-16" r="6" fill={bg || "none"} stroke={color} strokeWidth={Math.max(1, t/2)} /></svg>
+      )},
+      MOVING_HEAD_PROFILE: { id: 'MOVING_HEAD_PROFILE', category: 'fixture', name: '무빙 프로파일', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-10" y="6" width="20" height="8" rx={rx || 2} fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -8 6 L -10 -2 L -5 -16 L 5 -16 L 10 -2 L 8 6 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-3" y="-18" width="6" height="4" fill={bg || "none"} stroke={color} strokeWidth={t} /></svg>
+      )},
+      MOVING_MIRROR: { id: 'MOVING_MIRROR', category: 'fixture', name: '무빙 미러', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-8" y="2" width="16" height="12" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><path d="M -6 2 L -8 -12 L 8 -12 L 6 2" fill="none" stroke={color} strokeWidth={t} /><line x1="-12" y1="-16" x2="12" y2="-8" stroke={color} strokeWidth={t} /><circle cx="0" cy="8" r="2" fill={bg || "none"} stroke={color} strokeWidth={t} /></svg>
+      )},
+      SCANNER: { id: 'SCANNER', category: 'fixture', name: '스캐너', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-8" y="-10" width="16" height="24" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><path d="M -8 -10 L -12 -16 L 12 -16 L 8 -10" fill="none" stroke={color} strokeWidth={t} /><line x1="-12" y1="-16" x2="12" y2="-16" stroke={color} strokeWidth={t} /><line x1="-14" y1="-14" x2="14" y2="-14" stroke={color} strokeWidth={1} strokeDasharray="2 2" /></svg>
+      )},
+      DIGITAL_LIGHT: { id: 'DIGITAL_LIGHT', category: 'fixture', name: '디지털 라이트', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><rect x="-12" y="-10" width="24" height="20" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} rx={rx} /><rect x="-8" y="-6" width="16" height="12" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      AUTO_PAR: { id: 'AUTO_PAR', category: 'fixture', name: '자동 파캔', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><circle cx="0" cy="0" r="12" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="0" r="8" fill="none" stroke={color} strokeWidth={t} strokeDasharray="2 2" /><path d="M -16 0 A 16 16 0 0 1 16 0" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      CUSTOM_SYMBOL: {
+        id: 'CUSTOM_SYMBOL', category: 'fixture', name: '사용자 정의 심볼',
+        render: (color = '#fff', width = 40, rotation = 0, thickness = 2, height = 40, text = '', src = '', bg = '', op = 1, dash = '', rx = 0) => (
+          <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}>
+            {bg && <rect x="-20" y="-20" width="40" height="40" fill={bg} rx={rx || 4} />}
+            <rect x="-22" y="-22" width="44" height="44" fill="none" stroke={color !== '#ffffff' && color !== '#e2e8f0' && color !== '#94a3b8' && color !== '#334155' ? color : 'transparent'} strokeWidth={thickness} rx={rx || 4} strokeDasharray={dash || "4 4"} />
+            {src && <image href={src} x="-20" y="-20" width="40" height="40" preserveAspectRatio="contain" />}
+          </svg>
+        )
+      }
+    };
+
+    // --- 3D 미리보기 ---
+    const PLOT_SCALE = 1 / 50; // 평면도 50px = 1m
+    const RIG_HEIGHT = 5; // 트러스/바텐/조명기구 기본 설치 높이(m)
+
+    // --- 새 문서(도면 바탕) ---
+    const PAPER_SIZES_MM = { A4: { w: 210, h: 297 }, A3: { w: 297, h: 420 } };
+    const PAPER_UNITS_PER_MM = 2.5; // 1:50 축척 기준 (50 unit = 1m 규칙과 동일)
+    const computePageSize = (setting) => {
+      let wMM, hMM, label;
+      if (setting.useCustom) {
+        wMM = Math.max(10, Number(setting.customW) || 210);
+        hMM = Math.max(10, Number(setting.customH) || 297);
+        label = `커스텀 (${wMM}×${hMM}mm)`;
+      } else {
+        const base = PAPER_SIZES_MM[setting.preset] || PAPER_SIZES_MM.A4;
+        const isLandscape = setting.orientation === 'landscape';
+        wMM = isLandscape ? Math.max(base.w, base.h) : Math.min(base.w, base.h);
+        hMM = isLandscape ? Math.min(base.w, base.h) : Math.max(base.w, base.h);
+        label = `${setting.preset} ${isLandscape ? '가로' : '세로'} (${wMM}×${hMM}mm)`;
+      }
+      return { widthMM: wMM, heightMM: hMM, widthUnits: wMM * PAPER_UNITS_PER_MM, heightUnits: hMM * PAPER_UNITS_PER_MM, label };
+    };
+
+    const toThreeColor = (c, fallback) => (c && /^#([0-9A-Fa-f]{3}){1,2}$/.test(c)) ? c : fallback;
+
+    const add3DFixture = (THREE, parentGroup, f, showBeams, selected) => {
+      const tInfo = FIXTURE_TYPES[f.type];
+      if (!tInfo) return;
+      const x = f.x * PLOT_SCALE, z = f.y * PLOT_SCALE;
+      const rot = (f.rotation || 0) * Math.PI / 180;
+      const sc = f.scale || 1;
+      const lineColor = selected ? '#818cf8' : toThreeColor(f.color, tInfo.category === 'fixture' ? '#cbd5e1' : '#94a3b8');
+      const fillColor = toThreeColor(f.bgColor, null);
+      const opacity = f.opacity != null ? f.opacity : 1;
+      const emissive = selected ? { emissive: 0x818cf8, emissiveIntensity: 0.5 } : {};
+
+      const fixtureGroup = new THREE.Group();
+      fixtureGroup.userData.fixtureId = f.id;
+      parentGroup.add(fixtureGroup);
+
+      if (tInfo.category === 'venue') {
+        const w = (f.width || 500) * PLOT_SCALE, d = (f.height || 400) * PLOT_SCALE;
+        const geo = f.type === 'STAGE_ARENA' ? new THREE.CylinderGeometry(w / 2, w / 2, 0.3, 48) : new THREE.BoxGeometry(w, 0.3, d);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: fillColor || '#1e293b', roughness: 0.85, ...emissive }));
+        mesh.position.set(x, 0.15, z); mesh.rotation.y = rot; mesh.receiveShadow = true;
+        fixtureGroup.add(mesh);
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: lineColor }));
+        edges.position.copy(mesh.position); edges.rotation.copy(mesh.rotation);
+        fixtureGroup.add(edges);
+      } else if (tInfo.category === 'structure') {
+        const rigH = f.zHeight != null ? f.zHeight : RIG_HEIGHT;
+        const len = (f.width || 300) * PLOT_SCALE;
+        const isBatten = f.type === 'BATTEN';
+        const geo = isBatten ? new THREE.CylinderGeometry(0.04, 0.04, len, 8).rotateZ(Math.PI / 2) : new THREE.BoxGeometry(len, 0.25, 0.25);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: lineColor, metalness: 0.6, roughness: 0.4, ...emissive }));
+        mesh.position.set(x, rigH, z); mesh.rotation.y = rot; mesh.castShadow = true;
+        fixtureGroup.add(mesh);
+      } else if (tInfo.category === 'fixture') {
+        const h = (f.zHeight != null ? f.zHeight : RIG_HEIGHT) - 0.15;
+        const bodyMat = new THREE.MeshStandardMaterial({ color: lineColor, metalness: 0.3, roughness: 0.5, ...emissive });
+        const isMoving = f.type.startsWith('MOVING_') || f.type === 'SCANNER' || f.type === 'FOLLOWSPOT';
+        const body = isMoving
+          ? new THREE.Mesh(new THREE.SphereGeometry(0.12 * sc, 12, 12), bodyMat)
+          : new THREE.Mesh(new THREE.ConeGeometry(0.1 * sc, 0.22 * sc, 16).rotateX(Math.PI), bodyMat);
+        body.position.set(x, h, z); body.rotation.y = rot; body.castShadow = true;
+        fixtureGroup.add(body);
+
+        if (showBeams) {
+          const beamH = Math.max(0.2, h - 0.05);
+          const beam = new THREE.Mesh(
+            new THREE.ConeGeometry(0.9 * sc, beamH, 24, 1, true),
+            new THREE.MeshBasicMaterial({ color: lineColor, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false })
+          );
+          beam.position.set(x, beamH / 2, z);
+          fixtureGroup.add(beam);
+        }
+      } else if (tInfo.category === 'shape') {
+        const w = (f.width || 100) * PLOT_SCALE, d = (f.height || 100) * PLOT_SCALE;
+        if (f.type === 'CIRCLE') {
+          const mesh = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.01, w / 2 - 0.03), w / 2, 32), new THREE.MeshBasicMaterial({ color: lineColor, side: THREE.DoubleSide }));
+          mesh.rotation.x = -Math.PI / 2; mesh.rotation.z = rot; mesh.position.set(x, 0.02, z);
+          fixtureGroup.add(mesh);
+        } else if (f.type === 'LINE' || f.type === 'CURVE') {
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.05), new THREE.MeshBasicMaterial({ color: lineColor, side: THREE.DoubleSide }));
+          mesh.rotation.x = -Math.PI / 2; mesh.rotation.z = rot; mesh.position.set(x, 0.02, z);
+          fixtureGroup.add(mesh);
+        } else {
+          const fillMesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: fillColor || lineColor, transparent: true, opacity: fillColor ? Math.max(0.4, opacity) : 0.12, side: THREE.DoubleSide }));
+          fillMesh.rotation.x = -Math.PI / 2; fillMesh.rotation.z = rot; fillMesh.position.set(x, 0.018, z);
+          fixtureGroup.add(fillMesh);
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, d)), new THREE.LineBasicMaterial({ color: lineColor }));
+          edges.rotation.x = -Math.PI / 2; edges.rotation.z = rot; edges.position.set(x, 0.02, z);
+          fixtureGroup.add(edges);
+        }
+      } else if (tInfo.category === 'image') {
+        if (f.src) {
+          const w = (f.width || 200) * PLOT_SCALE, d = (f.height || 200) * PLOT_SCALE;
+          const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity, side: THREE.DoubleSide });
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+          mesh.rotation.x = -Math.PI / 2; mesh.rotation.z = rot; mesh.position.set(x, 0.01, z);
+          fixtureGroup.add(mesh);
+          new THREE.TextureLoader().load(f.src, (tex) => { mat.map = tex; mat.needsUpdate = true; });
+        }
+      } else if (tInfo.category === 'memo') {
+        const text = (f.text || f.name || '').split('\n')[0];
+        if (text) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 256; canvas.height = 64;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = fillColor || 'rgba(15,23,42,0.7)';
+          ctx.fillRect(0, 0, 256, 64);
+          ctx.fillStyle = lineColor;
+          ctx.font = 'bold 28px sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(text.slice(0, 16), 128, 32);
+          const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+          sprite.scale.set(2, 0.5, 1);
+          sprite.position.set(x, 1.6, z);
+          fixtureGroup.add(sprite);
+        }
+      }
+
+      if (selected && (tInfo.category === 'fixture' || tInfo.category === 'structure')) {
+        const r = 0.35 * sc + 0.15;
+        const marker = new THREE.Mesh(
+          new THREE.RingGeometry(r * 0.8, r, 32),
+          new THREE.MeshBasicMaterial({ color: 0x818cf8, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false })
+        );
+        marker.rotation.x = -Math.PI / 2;
+        marker.position.set(x, 0.04, z);
+        fixtureGroup.add(marker);
+      }
+    };
+
+    function ThreeDView({ fixtures, layers, isDarkMode, showBeams, selectedIds, placingFixture, onPlaceAt, onSelectFixture, onDeselect }) {
+      const mountRef = useRef(null);
+      const dataRef = useRef({ fixtures, layers, showBeams, selectedIds, placingFixture });
+      dataRef.current = { fixtures, layers, showBeams, selectedIds, placingFixture };
+      const callbackRef = useRef({ onPlaceAt, onSelectFixture, onDeselect });
+      callbackRef.current = { onPlaceAt, onSelectFixture, onDeselect };
+      const rebuildRef = useRef(null);
+      const sceneRefs = useRef({});
+
+      useEffect(() => {
+        const mount = mountRef.current;
+        if (!mount) return;
+        let disposed = false;
+        let renderer, scene, camera, controls, frameId, resizeObserver;
+        let onPointerDown, onPointerUp, onPointerMove;
+
+        (async () => {
+          const THREE = await import('three');
+          const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js');
+          if (disposed || !mount) return;
+
+          const w = mount.clientWidth || 800, h = mount.clientHeight || 600;
+          scene = new THREE.Scene();
+          scene.background = new THREE.Color(isDarkMode ? 0x0f172a : 0xe2e8f0);
+          scene.fog = new THREE.Fog(scene.background.getHex(), 30, 90);
+
+          camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 500);
+          camera.position.set(10, 9, 14);
+
+          renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          renderer.setSize(w, h);
+          renderer.shadowMap.enabled = true;
+          mount.appendChild(renderer.domElement);
+
+          controls = new OrbitControls(camera, renderer.domElement);
+          controls.enableDamping = true; controls.dampingFactor = 0.08;
+          controls.target.set(0, 1.5, 0);
+          controls.maxPolarAngle = Math.PI * 0.49;
+          controls.minDistance = 2; controls.maxDistance = 80;
+          controls.update();
+
+          scene.add(new THREE.AmbientLight(0xffffff, isDarkMode ? 0.35 : 0.6));
+          scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.4));
+          const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+          dirLight.position.set(15, 25, 10);
+          dirLight.castShadow = true;
+          dirLight.shadow.mapSize.set(1024, 1024);
+          scene.add(dirLight);
+
+          const floorMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x1e293b : 0xf8fafc, roughness: 0.9 });
+          const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMat);
+          floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+          scene.add(floor);
+
+          const grid = new THREE.GridHelper(60, 60, isDarkMode ? 0x334155 : 0xcbd5e1, isDarkMode ? 0x1e293b : 0xe2e8f0);
+          grid.position.y = 0.001;
+          scene.add(grid);
+
+          const contentGroup = new THREE.Group();
+          scene.add(contentGroup);
+
+          const hoverMarker = new THREE.Mesh(
+            new THREE.RingGeometry(0.35, 0.48, 28),
+            new THREE.MeshBasicMaterial({ color: 0xa5b4fc, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
+          );
+          hoverMarker.rotation.x = -Math.PI / 2;
+          hoverMarker.visible = false;
+          scene.add(hoverMarker);
+
+          const disposeObj = (obj) => obj.traverse(o => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+          });
+
+          const buildContent = () => {
+            const { fixtures: fx, layers: ly, showBeams: beams, selectedIds: sel } = dataRef.current;
+            while (contentGroup.children.length) {
+              const obj = contentGroup.children[0];
+              contentGroup.remove(obj);
+              disposeObj(obj);
+            }
+            fx.filter(f => ly.find(l => l.id === (f.layerId || 'layer_default'))?.visible !== false)
+              .forEach(f => add3DFixture(THREE, contentGroup, f, beams, sel.includes(f.id)));
+          };
+
+          rebuildRef.current = buildContent;
+          sceneRefs.current = { floorMat, grid, scene };
+          buildContent();
+
+          resizeObserver = new ResizeObserver(() => {
+            if (!mount) return;
+            const nw = mount.clientWidth, nh = mount.clientHeight;
+            if (!nw || !nh) return;
+            camera.aspect = nw / nh; camera.updateProjectionMatrix();
+            renderer.setSize(nw, nh);
+          });
+          resizeObserver.observe(mount);
+
+          const raycaster = new THREE.Raycaster();
+          const mouseNDC = new THREE.Vector2();
+          const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+          const setNDC = (clientX, clientY) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+          };
+          const findFixtureId = (obj) => {
+            let o = obj;
+            while (o) { if (o.userData && o.userData.fixtureId) return o.userData.fixtureId; o = o.parent; }
+            return null;
+          };
+
+          let downX = 0, downY = 0, downButton = -1;
+          onPointerDown = (e) => { downX = e.clientX; downY = e.clientY; downButton = e.button; };
+          onPointerUp = (e) => {
+            if (downButton !== 0 || e.button !== 0) return;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+            setNDC(e.clientX, e.clientY);
+            raycaster.setFromCamera(mouseNDC, camera);
+            const { placingFixture: pf } = dataRef.current;
+            if (pf) {
+              const hit = new THREE.Vector3();
+              if (raycaster.ray.intersectPlane(groundPlane, hit)) {
+                callbackRef.current.onPlaceAt(hit.x / PLOT_SCALE, hit.z / PLOT_SCALE);
+              }
+              return;
+            }
+            const intersects = raycaster.intersectObjects(contentGroup.children, true);
+            let hitId = null;
+            for (const it of intersects) {
+              const id = findFixtureId(it.object);
+              if (id) { hitId = id; break; }
+            }
+            if (hitId) callbackRef.current.onSelectFixture(hitId, e.shiftKey);
+            else callbackRef.current.onDeselect(e.shiftKey);
+          };
+          onPointerMove = (e) => {
+            const { placingFixture: pf } = dataRef.current;
+            mount.style.cursor = pf ? 'crosshair' : 'default';
+            if (!pf) { hoverMarker.visible = false; return; }
+            setNDC(e.clientX, e.clientY);
+            raycaster.setFromCamera(mouseNDC, camera);
+            const hit = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(groundPlane, hit)) {
+              hoverMarker.visible = true;
+              hoverMarker.position.set(hit.x, 0.03, hit.z);
+            } else hoverMarker.visible = false;
+          };
+          renderer.domElement.addEventListener('pointerdown', onPointerDown);
+          renderer.domElement.addEventListener('pointerup', onPointerUp);
+          renderer.domElement.addEventListener('pointermove', onPointerMove);
+
+          const animate = () => {
+            frameId = requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+          };
+          animate();
+        })();
+
+        return () => {
+          disposed = true;
+          rebuildRef.current = null;
+          if (resizeObserver) resizeObserver.disconnect();
+          if (frameId) cancelAnimationFrame(frameId);
+          if (controls) controls.dispose();
+          if (renderer) {
+            if (onPointerDown) renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+            if (onPointerUp) renderer.domElement.removeEventListener('pointerup', onPointerUp);
+            if (onPointerMove) renderer.domElement.removeEventListener('pointermove', onPointerMove);
+            renderer.dispose();
+            if (renderer.domElement && renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+          }
+        };
+      }, []);
+
+      useEffect(() => { if (rebuildRef.current) rebuildRef.current(); }, [fixtures, layers, showBeams, selectedIds]);
+
+      useEffect(() => {
+        const refs = sceneRefs.current;
+        if (refs.floorMat) refs.floorMat.color.set(isDarkMode ? 0x1e293b : 0xf8fafc);
+        if (refs.scene && refs.scene.background) refs.scene.background.set(isDarkMode ? 0x0f172a : 0xe2e8f0);
+      }, [isDarkMode]);
+
+      return <div ref={mountRef} className="absolute inset-0" />;
+    }
+
+    export default function App() {
+      const [fixtures, setFixtures] = useState([]);
+      const [selectedIds, setSelectedIds] = useState([]);
+      const [activeTool, setActiveTool] = useState('select'); 
+      const [selectionBox, setSelectionBox] = useState(null);
+      const [contextMenu, setContextMenu] = useState(null);
+
+      const [layers, setLayers] = useState([
+        { id: 'layer_structure', name: '구조물 레이어', visible: true, locked: false },
+        { id: 'layer_fixture', name: '조명기 레이어', visible: true, locked: false },
+        { id: 'layer_default', name: '기본 레이어', visible: true, locked: false }
+      ]);
+      const [activeLayerId, setActiveLayerId] = useState('layer_fixture');
+      const [editingLayerId, setEditingLayerId] = useState(null);
+      const [editLayerName, setEditLayerName] = useState('');
+
+      const [leftPanelTab, setLeftPanelTab] = useState('layers');
+      const [showInfo, setShowInfo] = useState({
+        venue: '', production: '', staffMeetingDate: '', setupDate: '',
+        showDate: '', showTime: '', lightingDesigner: '', crew: ''
+      });
+      const [activeCategory, setActiveCategory] = useState('fixture');
+
+      const [view, setView] = useState({ x: 500, y: 400, zoom: 1 });
+      const [isPanning, setIsPanning] = useState(false);
+      const [snapToGrid, setSnapToGrid] = useState(true);
+      const [showAxis, setShowAxis] = useState(true);
+      
+      const [placingFixture, setPlacingFixture] = useState(null);
+      const [hoverPos, setHoverPos] = useState(null);
+      
+      const [dragInfo, setDragInfo] = useState(null);
+      const [pdfExportMode, setPdfExportMode] = useState(false);
+      const [exportBox, setExportBox] = useState(null);
+      const [clipboard, setClipboard] = useState([]);
+
+      const [pageSize, setPageSize] = useState(null);
+      const [showNewDocModal, setShowNewDocModal] = useState(false);
+      const [newDocSetting, setNewDocSetting] = useState({ preset: 'A4', orientation: 'landscape', useCustom: false, customW: 420, customH: 297 });
+
+      const [autoChannelPort, setAutoChannelPort] = useState('');
+      const [autoChannelStart, setAutoChannelStart] = useState(1);
+      const [autoChannelStep, setAutoChannelStep] = useState(1);
+
+      const [customSymbolNames, setCustomSymbolNames] = useState({});
+      const [editingSymbolId, setEditingSymbolId] = useState(null);
+      const [editSymbolName, setEditSymbolName] = useState('');
+
+      const containerRef = useRef(null);
+      const fileInputRef = useRef(null); 
+      const imageInputRef = useRef(null);
+      const symbolInputRef = useRef(null);
+      const [toastMsg, setToastMsg] = useState(''); 
+
+      const [aiThemeInput, setAiThemeInput] = useState('');
+      const [isAiThemeLoading, setIsAiThemeLoading] = useState(false);
+
+      const [customSymbols, setCustomSymbols] = useState([]);
+      const [isDarkMode, setIsDarkMode] = useState(true);
+      const [showUI, setShowUI] = useState(true);
+
+      const [is3DView, setIs3DView] = useState(false);
+      const [show3DBeams, setShow3DBeams] = useState(true);
+      const [view3DKey, setView3DKey] = useState(0);
+
+      const historyRef = useRef([[]]);
+      const historyIndexRef = useRef(0);
+      const historyTimeoutRef = useRef(null);
+      const isDraggingRef = useRef(false);
+
+      const pushHistory = useCallback((newFixtures) => {
+        const currentHist = historyRef.current;
+        const currentIndex = historyIndexRef.current;
+        if (currentIndex >= 0 && JSON.stringify(currentHist[currentIndex]) === JSON.stringify(newFixtures)) return;
+        const newHist = currentHist.slice(0, currentIndex + 1);
+        newHist.push(newFixtures);
+        if (newHist.length > 50) newHist.shift();
+        historyRef.current = newHist;
+        historyIndexRef.current = newHist.length - 1;
+      }, []);
+
+      const pushHistoryDebounced = useCallback((newFixtures) => {
+        clearTimeout(historyTimeoutRef.current);
+        historyTimeoutRef.current = setTimeout(() => pushHistory(newFixtures), 300);
+      }, [pushHistory]);
+
+      const pushHistoryImmediate = useCallback((newFixtures) => {
+         clearTimeout(historyTimeoutRef.current);
+         pushHistory(newFixtures);
+      }, [pushHistory]);
+
+      const undo = useCallback(() => {
+        if (historyIndexRef.current > 0) {
+          clearTimeout(historyTimeoutRef.current);
+          historyIndexRef.current -= 1;
+          setFixtures(historyRef.current[historyIndexRef.current]);
+          setSelectedIds([]);
+          showToast("실행 취소");
+        }
+      }, []);
+
+      const redo = useCallback(() => {
+        if (historyIndexRef.current < historyRef.current.length - 1) {
+          clearTimeout(historyTimeoutRef.current);
+          historyIndexRef.current += 1;
+          setFixtures(historyRef.current[historyIndexRef.current]);
+          setSelectedIds([]);
+          showToast("다시 실행");
+        }
+      }, []);
+
+      const themeVars = isDarkMode ? {
+        bg: '#0f172a', grid: 'rgba(255,255,255,0.05)', dimLine: '#475569', dimText: '#94a3b8', dimTextZero: '#cbd5e1', fixtureNormal: '#e2e8f0', fixtureSelected: '#818cf8', libNormal: '#94a3b8', libPlacing: '#a5b4fc'
+      } : {
+        bg: '#f8fafc', grid: 'rgba(0,0,0,0.05)', dimLine: '#94a3b8', dimText: '#64748b', dimTextZero: '#334155', fixtureNormal: '#334155', fixtureSelected: '#4f46e5', libNormal: '#64748b', libPlacing: '#6366f1'
+      };
+
+      const showToast = (msg) => {
+        setToastMsg(msg);
+        setTimeout(() => setToastMsg(''), 3000); 
+      };
+
+      const handleCenterView = useCallback(() => {
+        if (containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          setView({ x: rect.width / 2, y: rect.height / 2 + 125, zoom: 1 });
+        }
+      }, []);
+
+      useEffect(() => {
+        const timer = setTimeout(() => handleCenterView(), 100);
+        return () => clearTimeout(timer);
+      }, [handleCenterView]);
+
+      useEffect(() => { if (!placingFixture) setHoverPos(null); }, [placingFixture]);
+      
+      // Close Context Menu on any click
+      useEffect(() => {
+        const hideMenu = () => setContextMenu(null);
+        window.addEventListener('pointerdown', hideMenu);
+        return () => window.removeEventListener('pointerdown', hideMenu);
+      }, []);
+
+      const getGroupedSelection = useCallback((baseIds, currentFixtures) => {
+        const groupIds = new Set(currentFixtures.filter(f => baseIds.includes(f.id) && f.groupId).map(f => f.groupId));
+        return currentFixtures.filter(f => baseIds.includes(f.id) || (f.groupId && groupIds.has(f.groupId))).map(f => f.id);
+      }, []);
+
+      const handleGroup = useCallback(() => {
+        if (selectedIds.length < 2) return;
+        const newGroupId = `grp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        const newF = fixtures.map(f => selectedIds.includes(f.id) ? { ...f, groupId: newGroupId } : f);
+        setFixtures(newF); pushHistoryImmediate(newF);
+        showToast("그룹화 완료");
+      }, [selectedIds, fixtures, pushHistoryImmediate]);
+
+      const handleUngroup = useCallback(() => {
+        if (selectedIds.length === 0) return;
+        const newF = fixtures.map(f => selectedIds.includes(f.id) ? { ...f, groupId: null } : f);
+        setFixtures(newF); pushHistoryImmediate(newF);
+        showToast("그룹 해제 완료");
+      }, [selectedIds, fixtures, pushHistoryImmediate]);
+
+      const handleAutoAssignChannel = useCallback(() => {
+        const targets = fixtures.filter(f => selectedIds.includes(f.id) && FIXTURE_TYPES[f.type]?.category === 'fixture');
+        if (targets.length === 0) return;
+        const sorted = [...targets].sort((a, b) => a.x - b.x || a.y - b.y);
+        const start = Number(autoChannelStart) || 1;
+        const step = Number(autoChannelStep) || 1;
+        const fixedPort = autoChannelPort.trim();
+
+        const channelMap = {};
+        sorted.forEach((f, i) => {
+          const num = start + i * step;
+          let portPart = fixedPort;
+          if (!portPart) {
+            const existing = (f.channel || '').toString();
+            const slashIdx = existing.indexOf('/');
+            portPart = slashIdx !== -1 ? existing.slice(0, slashIdx) : '';
+          }
+          channelMap[f.id] = portPart ? `${portPart}/${num}` : `${num}`;
+        });
+
+        const newF = fixtures.map(f => channelMap[f.id] !== undefined ? { ...f, channel: channelMap[f.id] } : f);
+        setFixtures(newF); pushHistoryImmediate(newF);
+        showToast(`${sorted.length}개 기구에 채널이 자동 배정되었습니다.`);
+      }, [fixtures, selectedIds, autoChannelPort, autoChannelStart, autoChannelStep, pushHistoryImmediate]);
+
+      const handleSelectAll = useCallback(() => {
+        setSelectedIds(fixtures.filter(f => {
+          const l = layers.find(x => x.id === (f.layerId || 'layer_default'));
+          return l ? (!l.locked && l.visible) : true;
+        }).map(f => f.id));
+      }, [fixtures, layers]);
+
+      const handleCreateNewDoc = () => {
+        if (fixtures.length > 0 && !window.confirm("현재 작업 내용이 모두 사라집니다. 새 문서를 만드시겠습니까?")) return;
+        const newPage = computePageSize(newDocSetting);
+        setFixtures([]);
+        historyRef.current = [[]]; historyIndexRef.current = 0;
+        setSelectedIds([]);
+        setLayers([
+          { id: 'layer_structure', name: '구조물 레이어', visible: true, locked: false },
+          { id: 'layer_fixture', name: '조명기 레이어', visible: true, locked: false },
+          { id: 'layer_default', name: '기본 레이어', visible: true, locked: false }
+        ]);
+        setActiveLayerId('layer_fixture');
+        setPageSize(newPage);
+        setShowNewDocModal(false);
+        handleCenterView();
+        showToast(`${newPage.label} 새 문서가 생성되었습니다.`);
+      };
+
+      const saveFileHelper = async (blob, filename, description, mimeType, ext) => {
+        try {
+          if (window.showSaveFilePicker) {
+            try {
+              const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: description, accept: { [mimeType]: [ext] } }] });
+              const writable = await handle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              showToast(`${description} 저장 완료`);
+              return; 
+            } catch (err) { if (err.name === 'AbortError') return; }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = filename;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast(`${description}이(가) 저장되었습니다.`);
+        } catch (error) { showToast("파일 저장 오류"); }
+      };
+
+      const handleSaveData = async () => {
+        const data = { fixtures, layers, showInfo, customSymbolNames, customSymbols, pageSize };
+        const jsonString = JSON.stringify(data, null, 2);
+        const defaultFilename = `light_plot_${new Date().toISOString().slice(0, 10)}.json`;
+        const userInput = prompt("저장할 파일 이름을 입력하세요:", defaultFilename);
+        if (!userInput) return; 
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        await saveFileHelper(blob, userInput.endsWith('.json') ? userInput : `${userInput}.json`, '도면 데이터', 'application/json', '.json');
+      };
+
+      const handleLoadData = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data.fixtures && data.layers) {
+              setFixtures(data.fixtures);
+              historyRef.current = [data.fixtures]; historyIndexRef.current = 0;
+              setLayers(data.layers);
+              if (data.showInfo !== undefined) setShowInfo(data.showInfo);
+              if (data.customSymbolNames !== undefined) setCustomSymbolNames(data.customSymbolNames);
+              if (data.customSymbols !== undefined) setCustomSymbols(data.customSymbols);
+              if (data.pageSize !== undefined) setPageSize(data.pageSize);
+              setSelectedIds([]); setActiveLayerId(data.layers[0]?.id || 'layer_default');
+              showToast("도면 불러오기 성공");
+            }
+          } catch (err) { showToast("파일 읽기 오류"); }
+        };
+        reader.readAsText(file);
+        e.target.value = null; 
+      };
+
+      const handleImageUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const processImage = (dataUrl) => {
+          const img = new window.Image();
+          img.onload = () => {
+            let initW = img.width, initH = img.height;
+            const maxDim = 800;
+            if (initW > maxDim || initH > maxDim) {
+              const ratio = initW / initH;
+              if (initW > initH) { initW = maxDim; initH = maxDim / ratio; } else { initH = maxDim; initW = maxDim * ratio; }
+            }
+            const rect = containerRef.current.getBoundingClientRect();
+            let canvasX = (rect.width / 2 - view.x) / view.zoom;
+            let canvasY = (rect.height / 2 - view.y) / view.zoom;
+            if (snapToGrid) { canvasX = Math.round(canvasX / 5) * 5; canvasY = Math.round(canvasY / 5) * 5; }
+
+            const newFixture = { id: `fix_${Date.now()}`, type: 'IMAGE', name: file.type === 'application/pdf' ? 'PDF 도면' : '이미지', x: canvasX, y: canvasY, rotation: 0, width: initW, height: initH, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId: activeLayerId, src: dataUrl };
+            const newF = [...fixtures, newFixture];
+            setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([newFixture.id]);
+            showToast(file.type === 'application/pdf' ? "PDF 도면이 추가되었습니다." : "이미지가 추가되었습니다.");
+          };
+          img.src = dataUrl;
+        };
+
+        if (file.type === 'application/pdf') {
+          showToast("PDF를 변환 중입니다. 잠시만 기다려주세요...");
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+            if (!pdfjsLib) throw new Error("PDF.js 라이브러리가 로드되지 않았습니다.");
+            
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const page = await pdf.getPage(1); // 1페이지 추출
+            const viewport = page.getViewport({ scale: 2.0 }); // 고해상도 변환
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            processImage(canvas.toDataURL('image/png'));
+          } catch (err) {
+            console.error(err);
+            showToast("PDF 변환 중 오류가 발생했습니다.");
+          }
+        } else {
+          const reader = new FileReader();
+          reader.onload = (event) => processImage(event.target.result);
+          reader.readAsDataURL(file);
+        }
+        e.target.value = null; 
+      };
+
+      const handleSymbolUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        // AI, CAD 등 브라우저 미지원 포맷 안내
+        if (['dwg', 'dxf', 'ai'].includes(ext) && file.type !== 'application/pdf') {
+          showToast("CAD(dwg/dxf) 및 AI 원본은 직접 지원되지 않습니다. PDF, SVG 또는 이미지로 저장하여 추가해 주세요.");
+          e.target.value = null;
+          return;
+        }
+
+        // 파일 확장자를 제외한 이름을 심볼 이름으로 사용
+        const symbolName = file.name.replace(/\.[^/.]+$/, "");
+
+        if (file.type === 'application/pdf' || ext === 'pdf') {
+          showToast("PDF 심볼을 변환 중입니다...");
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+            if (!pdfjsLib) throw new Error("PDF.js 라이브러리가 로드되지 않았습니다.");
+            
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2.0 }); // 고해상도 추출
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            
+            const newSymbol = { id: `csym_${Date.now()}`, name: symbolName, src: canvas.toDataURL('image/png') };
+            setCustomSymbols(prev => [...prev, newSymbol]);
+            showToast("PDF 심볼 추가됨");
+          } catch (err) {
+            console.error(err);
+            showToast("PDF 변환 중 오류가 발생했습니다.");
+          }
+        } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const newSymbol = { id: `csym_${Date.now()}`, name: symbolName, src: event.target.result };
+            setCustomSymbols(prev => [...prev, newSymbol]);
+            showToast("이미지 심볼 추가됨");
+          };
+          reader.readAsDataURL(file);
+        }
+        e.target.value = null;
+      };
+
+      const handleAiThemeSetting = async () => {
+        if (selectedIds.length === 0 || !aiThemeInput.trim()) return;
+        setIsAiThemeLoading(true);
+        try {
+          const prompt = `연출 테마: "${aiThemeInput}"\n선택된 조명기구 수: ${selectedIds.length}개.\n이 테마를 완벽하게 표현할 수 있도록 정확히 ${selectedIds.length}개의 객체를 포함한 JSON 배열을 반환해 주세요.`;
+          const resultStr = await callGemini(prompt, `무대 조명 디자이너로서 선택된 테마에 어울리는 조명 젤 컬러(Rosco, Lee 등)와 연출 목적을 JSON 배열로 반환하세요. 예: [{"color": "R02", "purpose": "따뜻한 아침햇살"}]`, true);
+          let cleanJsonStr = resultStr.replace(/```json/g, '').replace(/```/g, '').trim();
+          const themeResult = JSON.parse(cleanJsonStr);
+
+          if (Array.isArray(themeResult) && themeResult.length >= selectedIds.length) {
+            const newF = fixtures.map(f => {
+              const selIdx = selectedIds.indexOf(f.id);
+              if (selIdx !== -1 && themeResult[selIdx]) return { ...f, color: themeResult[selIdx].color, purpose: themeResult[selIdx].purpose };
+              return f;
+            });
+            setFixtures(newF); pushHistoryImmediate(newF);
+            showToast(`✨ '${aiThemeInput}' 테마 적용 완료!`);
+            setAiThemeInput('');
+          }
+        } catch (error) { showToast("AI 테마 적용 오류"); } finally { setIsAiThemeLoading(false); }
+      };
+
+      const buildShowInfoFooterCanvas = (widthMM, heightMM) => {
+        const pxPerMM = 8;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(widthMM * pxPerMM);
+        canvas.height = Math.round(heightMM * pxPerMM);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, 1); ctx.lineTo(canvas.width, 1); ctx.stroke();
+
+        const fields = [
+          { label: '공연장', value: showInfo.venue },
+          { label: '공연작품', value: showInfo.production },
+          { label: '스탭회의', value: showInfo.staffMeetingDate },
+          { label: '셋업일자', value: showInfo.setupDate },
+          { label: '공연일', value: showInfo.showDate },
+          { label: '공연시간', value: showInfo.showTime },
+          { label: '조명디자이너', value: showInfo.lightingDesigner },
+          { label: '크루', value: (showInfo.crew || '').replace(/\n+/g, ', ') },
+        ];
+        const colWidth = canvas.width / fields.length;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        fields.forEach((f, i) => {
+          const cx = colWidth * i + colWidth / 2;
+          if (i > 0) {
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(colWidth * i, canvas.height * 0.15);
+            ctx.lineTo(colWidth * i, canvas.height * 0.85);
+            ctx.stroke();
+          }
+          ctx.fillStyle = '#64748b';
+          ctx.font = `bold ${Math.round(canvas.height * 0.2)}px sans-serif`;
+          ctx.fillText(f.label, cx, canvas.height * 0.32);
+          ctx.fillStyle = '#0f172a';
+          ctx.font = `${Math.round(canvas.height * 0.2)}px sans-serif`;
+          ctx.fillText((f.value || '-').toString().slice(0, 14), cx, canvas.height * 0.68);
+        });
+        return canvas;
+      };
+
+      const generatePDF = async (box) => {
+        showToast("PDF 생성 중...");
+        try {
+          setSelectedIds([]);
+          const canvasElement = containerRef.current;
+          const scale = 3;
+          const fullCanvas = await window.html2canvas(canvasElement, { backgroundColor: themeVars.bg, scale: scale, useCORS: true });
+
+          const boxX = Math.min(box.startX, box.currX), boxY = Math.min(box.startY, box.currY);
+          const boxWidth = Math.abs(box.currX - box.startX), boxHeight = Math.abs(box.currY - box.startY);
+          const croppedCanvas = document.createElement('canvas');
+          croppedCanvas.width = boxWidth * scale; croppedCanvas.height = boxHeight * scale;
+          croppedCanvas.getContext('2d').drawImage(fullCanvas, boxX * scale, boxY * scale, boxWidth * scale, boxHeight * scale, 0, 0, boxWidth * scale, boxHeight * scale);
+
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ orientation: boxWidth > boxHeight ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+          const footerHeightMM = 16;
+          const imageHeightMM = pageHeight - footerHeightMM;
+
+          pdf.addImage(croppedCanvas.toDataURL('image/png'), 'PNG', 0, 0, pageWidth, imageHeightMM);
+          const footerCanvas = buildShowInfoFooterCanvas(pageWidth, footerHeightMM);
+          pdf.addImage(footerCanvas.toDataURL('image/png'), 'PNG', 0, imageHeightMM, pageWidth, footerHeightMM);
+
+          const userInput = prompt("저장할 PDF 파일 이름:", `light_plot_export_${new Date().toISOString().slice(0, 10)}.pdf`);
+          if (userInput) await saveFileHelper(pdf.output('blob'), userInput.endsWith('.pdf') ? userInput : `${userInput}.pdf`, 'PDF 도면', 'application/pdf', '.pdf');
+        } catch (error) { showToast("PDF 오류 발생"); }
+      };
+
+      const handleCopy = useCallback(() => {
+        if (selectedIds.length === 0) return;
+        const toCopy = fixtures.filter(f => selectedIds.includes(f.id));
+        setClipboard(toCopy);
+        showToast(`${toCopy.length}개 항목이 복사되었습니다.`);
+      }, [selectedIds, fixtures]);
+
+      const handlePaste = useCallback(() => {
+        if (clipboard.length === 0) return;
+        const offset = snapToGrid ? 25 : 10;
+        const groupIdMap = {};
+
+        const newFixtures = clipboard.map(item => {
+          let newGroupId = item.groupId;
+          if (item.groupId) {
+            if (!groupIdMap[item.groupId]) {
+              groupIdMap[item.groupId] = `grp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            }
+            newGroupId = groupIdMap[item.groupId];
+          }
+          return {
+            ...item,
+            id: `fix_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            groupId: newGroupId,
+            x: item.x + offset,
+            y: item.y + offset,
+            layerId: activeLayerId
+          };
+        });
+        const newF = [...fixtures, ...newFixtures];
+        setFixtures(newF); pushHistoryImmediate(newF);
+        setSelectedIds(newFixtures.map(f => f.id));
+        setClipboard(newFixtures);
+        showToast(`${newFixtures.length}개 항목이 붙여넣기 되었습니다.`);
+      }, [clipboard, activeLayerId, snapToGrid, fixtures, pushHistoryImmediate]);
+
+      const handleDuplicate = useCallback(() => {
+        if (selectedIds.length === 0) return;
+        const toDup = fixtures.filter(f => selectedIds.includes(f.id));
+        const offset = snapToGrid ? 25 : 10;
+        const groupIdMap = {};
+
+        const newFixtures = toDup.map(item => {
+          let newGroupId = item.groupId;
+          if (item.groupId) {
+            if (!groupIdMap[item.groupId]) {
+              groupIdMap[item.groupId] = `grp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            }
+            newGroupId = groupIdMap[item.groupId];
+          }
+          return {
+            ...item,
+            id: `fix_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            groupId: newGroupId,
+            x: item.x + offset,
+            y: item.y + offset
+          };
+        });
+        const newF = [...fixtures, ...newFixtures];
+        setFixtures(newF); pushHistoryImmediate(newF);
+        setSelectedIds(newFixtures.map(f => f.id));
+        showToast(`${newFixtures.length}개 항목이 복제되었습니다.`);
+      }, [selectedIds, fixtures, snapToGrid, pushHistoryImmediate]);
+
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          const isInputFocused = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+          if (e.key === 'Tab' && !isInputFocused) { e.preventDefault(); setShowUI(prev => !prev); } 
+          else if (e.key === 'Escape') { setPlacingFixture(null); setSelectedIds([]); setPdfExportMode(false); setExportBox(null); setShowUI(true); } 
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isInputFocused) { e.preventDefault(); e.shiftKey ? redo() : undo(); } 
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !isInputFocused) { e.preventDefault(); redo(); } 
+          else if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused && selectedIds.length > 0) {
+            const newF = fixtures.filter(f => !selectedIds.includes(f.id)); setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([]);
+          } 
+          else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && !isInputFocused && selectedIds.length > 0) {
+            e.preventDefault();
+            const step = snapToGrid ? 5 : 1; 
+            let dx = 0, dy = 0;
+            if (e.key === 'ArrowUp') dy = -step; if (e.key === 'ArrowDown') dy = step;
+            if (e.key === 'ArrowLeft') dx = -step; if (e.key === 'ArrowRight') dx = step;
+            const newF = fixtures.map(f => selectedIds.includes(f.id) ? { ...f, x: f.x + dx, y: f.y + dy } : f);
+            setFixtures(newF); pushHistoryDebounced(newF);
+          }
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && !isInputFocused) { e.preventDefault(); handleCopy(); }
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && !isInputFocused) { e.preventDefault(); handlePaste(); }
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !isInputFocused) { e.preventDefault(); handleDuplicate(); }
+          else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && !isInputFocused) { 
+            e.preventDefault(); 
+            if (e.shiftKey) handleUngroup(); 
+            else handleGroup(); 
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [selectedIds, snapToGrid, fixtures, pushHistoryImmediate, pushHistoryDebounced, undo, redo, handleCopy, handlePaste, handleDuplicate, handleGroup, handleUngroup]);
+
+      const handleWheel = (e) => {
+        e.preventDefault();
+        setView(prev => ({...prev, zoom: Math.max(0.2, Math.min(prev.zoom - e.deltaY * 0.001, 3))}));
+      };
+
+      const placeFixtureAt = (rawX, rawY) => {
+        if (!placingFixture) return;
+        let newX = rawX, newY = rawY;
+        if (snapToGrid) { newX = Math.round(newX / 5) * 5; newY = Math.round(newY / 5) * 5; }
+
+        const isCustom = placingFixture.startsWith('csym_');
+        const typeKey = isCustom ? 'CUSTOM_SYMBOL' : placingFixture;
+        const tInfo = FIXTURE_TYPES[typeKey];
+        const isVenue = tInfo.category === 'venue';
+        const isShape = tInfo.category === 'shape';
+        const isMemo = tInfo.category === 'memo';
+        const isImg = tInfo.category === 'image';
+
+        let symSrc = '', symName = tInfo.name;
+        if (isCustom) {
+           const sym = customSymbols.find(s => s.id === placingFixture);
+           if (sym) { symSrc = sym.src; symName = customSymbolNames[placingFixture] || sym.name; }
+        } else { symName = customSymbolNames[placingFixture] || tInfo.name; }
+
+        const newF = [...fixtures, {
+          id: `fix_${Date.now()}`, type: typeKey, customSymbolId: isCustom ? placingFixture : undefined,
+          name: symName, x: newX, y: newY, rotation: 0,
+          width: isVenue ? 500 : ((isShape || isMemo || isImg) ? 150 : 300),
+          height: isVenue ? 400 : ((isShape || isImg) ? 100 : (isMemo ? 50 : undefined)),
+          thickness: (isShape || isVenue) ? 2 : undefined, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId: activeLayerId, src: symSrc
+        }];
+        setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([newF[newF.length-1].id]);
+        setPlacingFixture(null); setHoverPos(null);
+      };
+
+      const selectFixtureFrom3D = (id, shiftKey) => {
+        const fixture = fixtures.find(f => f.id === id);
+        if (!fixture) return;
+        const layer = layers.find(l => l.id === (fixture.layerId || 'layer_default'));
+        if (layer && layer.locked) return;
+        let newSel = [...selectedIds];
+        if (shiftKey) {
+          if (newSel.includes(id)) {
+            newSel = fixture.groupId ? newSel.filter(x => fixtures.find(f => f.id === x)?.groupId !== fixture.groupId) : newSel.filter(x => x !== id);
+          } else newSel.push(id);
+        } else if (!newSel.includes(id)) {
+          newSel = [id];
+        }
+        setSelectedIds(getGroupedSelection(newSel, fixtures));
+      };
+
+      const deselectAll3D = (shiftKey) => { if (!shiftKey) setSelectedIds([]); };
+
+      const handlePointerDown = (e) => {
+        if (e.button === 2) return; // 우클릭 시 컨텍스트 메뉴를 띄우기 위해 드래그 등 기본동작 패스
+        if (pdfExportMode) {
+          const rect = containerRef.current.getBoundingClientRect();
+          setExportBox({ startX: e.clientX - rect.left, startY: e.clientY - rect.top, currX: e.clientX - rect.left, currY: e.clientY - rect.top });
+          return;
+        }
+
+        if (placingFixture) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const newX = (e.clientX - rect.left - view.x) / view.zoom;
+          const newY = (e.clientY - rect.top - view.y) / view.zoom;
+          placeFixtureAt(newX, newY);
+          return;
+        }
+
+        if (e.target.closest('.fixture-node') || e.target.closest('.rotate-handle')) return;
+        
+        if (activeTool === 'pan' || e.button === 1) {
+          setIsPanning(true); setDragInfo({ startX: e.clientX, startY: e.clientY, origViewX: view.x, origViewY: view.y });
+        } else {
+          isDraggingRef.current = true; if (!e.shiftKey) setSelectedIds([]);
+          const rect = containerRef.current.getBoundingClientRect();
+          setSelectionBox({ startX: e.clientX - rect.left, startY: e.clientY - rect.top, currX: e.clientX - rect.left, currY: e.clientY - rect.top, initialSelectedIds: e.shiftKey ? [...selectedIds] : [] });
+        }
+      };
+
+      const handlePointerMove = (e) => {
+        if (placingFixture) {
+          const rect = containerRef.current.getBoundingClientRect();
+          let newX = (e.clientX - rect.left - view.x) / view.zoom; let newY = (e.clientY - rect.top - view.y) / view.zoom;
+          if (snapToGrid) { newX = Math.round(newX / 5) * 5; newY = Math.round(newY / 5) * 5; }
+          setHoverPos({ x: newX, y: newY }); return;
+        }
+
+        if (pdfExportMode && exportBox) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+          const rawW = Math.abs(mouseX - exportBox.startX), rawH = Math.abs(mouseY - exportBox.startY);
+          if (rawW > 0 || rawH > 0) {
+            const isLand = rawW > rawH; const a4 = Math.sqrt(2);
+            let fW = rawW, fH = rawH;
+            if (isLand) { if (rawW / (rawH || 1) > a4) fH = rawW / a4; else fW = rawH * a4; }
+            else { if (rawH / (rawW || 1) > a4) fW = rawH / a4; else fH = rawW * a4; }
+            setExportBox(prev => ({ ...prev, currX: exportBox.startX + (mouseX >= exportBox.startX ? fW : -fW), currY: exportBox.startY + (mouseY >= exportBox.startY ? fH : -fH) }));
+          }
+          return;
+        }
+
+        if (isPanning && dragInfo) {
+          setView(prev => ({ ...prev, x: dragInfo.origViewX + (e.clientX - dragInfo.startX), y: dragInfo.origViewY + (e.clientY - dragInfo.startY) }));
+        } else if (selectionBox) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const currX = e.clientX - rect.left, currY = e.clientY - rect.top;
+          setSelectionBox(prev => ({ ...prev, currX, currY }));
+          const minX = Math.min(selectionBox.startX, currX), maxX = Math.max(selectionBox.startX, currX);
+          const minY = Math.min(selectionBox.startY, currY), maxY = Math.max(selectionBox.startY, currY);
+          const cMinX = (minX - view.x) / view.zoom, cMaxX = (maxX - view.x) / view.zoom;
+          const cMinY = (minY - view.y) / view.zoom, cMaxY = (maxY - view.y) / view.zoom;
+          
+          const newSelIds = fixtures.filter(f => {
+            const l = layers.find(x => x.id === (f.layerId || 'layer_default'));
+            if (l && (l.locked || !l.visible)) return false;
+            return f.x >= cMinX && f.x <= cMaxX && f.y >= cMinY && f.y <= cMaxY;
+          }).map(f => f.id);
+          setSelectedIds(getGroupedSelection(e.shiftKey ? Array.from(new Set([...selectionBox.initialSelectedIds, ...newSelIds])) : newSelIds, fixtures));
+        } else if (dragInfo && dragInfo.type === 'resize') {
+          const rect = containerRef.current.getBoundingClientRect();
+          const dx = ((e.clientX - rect.left - view.x) / view.zoom) - dragInfo.startX;
+          const dy = ((e.clientY - rect.top - view.y) / view.zoom) - dragInfo.startY;
+          const tFix = fixtures.find(f => f.id === dragInfo.targetId);
+          
+          if (tFix) {
+            if (FIXTURE_TYPES[tFix.type].category === 'fixture') {
+               const dist = Math.sqrt(dx*dx + dy*dy);
+               const sign = (dx + dy) > 0 ? 1 : -1;
+               let newScale = dragInfo.startScale + (sign * dist * 0.01);
+               newScale = Math.max(0.1, Math.min(newScale, 10)); 
+               setFixtures(fixtures.map(f => f.id === tFix.id ? { ...f, scale: newScale } : f));
+            } else {
+               const angle = (tFix.rotation || 0) * (Math.PI / 180);
+               const localDx = (dx * Math.cos(-angle) - dy * Math.sin(-angle)) / (tFix.scale || 1);
+               const localDy = (dx * Math.sin(-angle) + dy * Math.cos(-angle)) / (tFix.scale || 1);
+               let updates = {};
+               if (dragInfo.handlePos.includes('e')) updates.width = Math.max(20, dragInfo.startW + localDx * 2);
+               if (dragInfo.handlePos.includes('s')) updates.height = Math.max(20, dragInfo.startH + localDy * 2);
+               if (snapToGrid) {
+                 if (updates.width) updates.width = Math.max(50, Math.round(updates.width / 50) * 50);
+                 if (updates.height) updates.height = Math.max(50, Math.round(updates.height / 50) * 50);
+               }
+               setFixtures(fixtures.map(f => f.id === tFix.id ? { ...f, ...updates } : f));
+            }
+          }
+        } else if (dragInfo && dragInfo.type === 'fixture') {
+          let rDx = e.clientX - dragInfo.startX, rDy = e.clientY - dragInfo.startY;
+          if (e.shiftKey) { if (Math.abs(rDx) > Math.abs(rDy)) rDy = 0; else rDx = 0; }
+          const dx = rDx / view.zoom, dy = rDy / view.zoom;
+          setFixtures(fixtures.map(f => {
+            const item = dragInfo.items.find(x => x.id === f.id);
+            if (item) {
+              let nx = item.ox + dx, ny = item.oy + dy;
+              if (snapToGrid) { nx = Math.round(nx/5)*5; ny = Math.round(ny/5)*5; }
+              return { ...f, x: nx, y: ny };
+            }
+            return f;
+          }));
+        } else if (dragInfo && dragInfo.type === 'rotate') {
+          const rect = containerRef.current.getBoundingClientRect();
+          const tFix = fixtures.find(f => f.id === dragInfo.targetId);
+          if (tFix) {
+            let angle = Math.atan2(((e.clientY - rect.top - view.y) / view.zoom) - tFix.y, ((e.clientX - rect.left - view.x) / view.zoom) - tFix.x) * (180 / Math.PI) + 90;
+            angle = (angle % 360 + 360) % 360;
+            if (snapToGrid) { angle = Math.round(angle / 15) * 15; if (angle === 360) angle = 0; }
+            setFixtures(fixtures.map(f => selectedIds.includes(f.id) ? { ...f, rotation: Math.round(angle) } : f));
+          }
+        }
+      };
+
+      const handlePointerUp = () => {
+        if (pdfExportMode && exportBox) {
+          const box = { ...exportBox }; setExportBox(null); setPdfExportMode(false);
+          if (Math.abs(box.currX - box.startX) < 50) { showToast("영역이 너무 작습니다."); return; }
+          setTimeout(() => generatePDF(box), 100); return;
+        }
+        if (isDraggingRef.current) { pushHistoryImmediate(fixtures); isDraggingRef.current = false; }
+        setIsPanning(false); setDragInfo(null); setSelectionBox(null);
+      };
+
+      const handleFixturePointerDown = (e, fixture) => {
+        if (pdfExportMode) return; e.stopPropagation();
+        const layer = layers.find(l => l.id === (fixture.layerId || 'layer_default'));
+        if (layer && layer.locked) return;
+        
+        let newSel = [...selectedIds];
+        // 우클릭이면 객체를 선택하되 드래그는 발생시키지 않음
+        if (e.button === 2) {
+          if (!newSel.includes(fixture.id)) {
+            newSel = [fixture.id];
+            setSelectedIds(getGroupedSelection(newSel, fixtures));
+          }
+          return;
+        }
+
+        if (e.shiftKey) {
+          if (newSel.includes(fixture.id)) {
+            if (fixture.groupId) newSel = newSel.filter(id => fixtures.find(x => x.id === id)?.groupId !== fixture.groupId);
+            else newSel = newSel.filter(id => id !== fixture.id);
+          } else newSel.push(fixture.id);
+        } else if (!newSel.includes(fixture.id)) newSel = [fixture.id];
+        
+        const fSel = getGroupedSelection(newSel, fixtures);
+        setSelectedIds(fSel); isDraggingRef.current = true;
+        setDragInfo({ type: 'fixture', startX: e.clientX, startY: e.clientY, items: fixtures.filter(f => fSel.includes(f.id)).map(f => ({ id: f.id, ox: f.x, oy: f.y })) });
+      };
+
+      const handleResizePointerDown = (e, fixture, handlePos) => {
+        if (pdfExportMode) return; e.stopPropagation();
+        if (layers.find(l => l.id === (fixture.layerId || 'layer_default'))?.locked) return;
+        if (!selectedIds.includes(fixture.id)) setSelectedIds([fixture.id]);
+        isDraggingRef.current = true;
+        const rect = containerRef.current.getBoundingClientRect();
+        setDragInfo({ type: 'resize', targetId: fixture.id, handlePos, startX: (e.clientX - rect.left - view.x) / view.zoom, startY: (e.clientY - rect.top - view.y) / view.zoom, startW: fixture.width || 150, startH: fixture.height || 100, startScale: fixture.scale || 1 });
+      };
+
+      const handleRotatePointerDown = (e, fixture) => {
+        if (pdfExportMode) return; e.stopPropagation();
+        isDraggingRef.current = true; setDragInfo({ type: 'rotate', targetId: fixture.id });
+      };
+
+      const updateSelectedFixtures = (key, value) => {
+        if (selectedIds.length === 0) return;
+        const newF = fixtures.map(f => selectedIds.includes(f.id) ? { ...f, [key]: value } : f);
+        setFixtures(newF); pushHistoryDebounced(newF);
+      };
+
+      const deleteSelectedFixtures = () => {
+        if (selectedIds.length === 0) return;
+        const newF = fixtures.filter(f => !selectedIds.includes(f.id));
+        setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([]);
+        setContextMenu(null); // 삭제 후 메뉴 닫기
+      };
+
+      const firstSel = selectedIds.length > 0 ? fixtures.find(f => f.id === selectedIds[0]) : null;
+      const typeInfo = firstSel ? FIXTURE_TYPES[firstSel.type] : null;
+      
+      const getLibItems = () => {
+        let i = Object.values(FIXTURE_TYPES).filter(f => f.category === activeCategory);
+        if (activeCategory === 'fixture') i = [...i, ...customSymbols.map(s => ({ ...FIXTURE_TYPES.CUSTOM_SYMBOL, id: s.id, name: s.name, src: s.src }))].filter(x => x.id !== 'CUSTOM_SYMBOL');
+        return i;
+      };
+
+      const getSortOrder = (type) => {
+        const cat = FIXTURE_TYPES[type]?.category;
+        return { 'image': 1, 'venue': 2, 'shape': 3, 'structure': 4, 'fixture': 5, 'memo': 6 }[cat] || 0;
+      };
+
+      return (
+        <div className={`flex h-screen w-full font-sans overflow-hidden ${isDarkMode ? 'dark' : ''}`}>
+          <div className="flex h-full w-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+            
+            {/* LEFT PANEL */}
+            <div className={`w-48 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col z-10 shadow-xl ${showUI ? 'flex' : 'hidden'}`}>
+              <div className="p-4 bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-700">
+                <h1 className="text-lg font-bold flex items-center gap-2"><Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />BIGLIGHT PLOT</h1>
+              </div>
+              
+              <div className="flex bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                <button onClick={() => setLeftPanelTab('layers')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'layers' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Layers className="w-3.5 h-3.5" /> 레이어</button>
+                <button onClick={() => setLeftPanelTab('showInfo')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'showInfo' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><FileText className="w-3.5 h-3.5" /> 공연정보</button>
+              </div>
+
+              <div className={`p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col h-56 ${leftPanelTab === 'layers' ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
+                {leftPanelTab === 'layers' ? (
+                  <>
+                    <div className="flex justify-between mb-3"><span className="text-xs font-semibold text-slate-500 dark:text-slate-400">목록</span><button onClick={() => {const id=`layer_${Date.now()}`; setLayers([{id, name:`새 레이어`, visible:true, locked:false}, ...layers]); setActiveLayerId(id);}}><Plus className="w-4 h-4 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"/></button></div>
+                    <div className="overflow-y-auto custom-scrollbar space-y-1">
+                      {layers.map(l => (
+                        <div key={l.id} onClick={() => setActiveLayerId(l.id)} className={`flex items-center p-2 rounded text-xs cursor-pointer ${activeLayerId === l.id ? 'bg-indigo-100 dark:bg-indigo-600/30' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                          {editingLayerId === l.id ? (
+                            <input autoFocus value={editLayerName} onChange={e=>setEditLayerName(e.target.value)} onBlur={()=>{setLayers(layers.map(x=>x.id===l.id?{...x,name:editLayerName||'이름 없음'}:x)); setEditingLayerId(null);}} className="flex-1 w-0 bg-transparent outline-none border border-indigo-400 rounded px-1" />
+                          ) : (
+                            <span className="flex-1 truncate" onDoubleClick={()=>{setEditingLayerId(l.id);setEditLayerName(l.name);}}>{l.name}</span>
+                          )}
+                          <div className="flex gap-1">
+                            <button onClick={e=>{e.stopPropagation(); setLayers(layers.map(x=>x.id===l.id?{...x,visible:!x.visible}:x));}}><Eye className={`w-3.5 h-3.5 ${!l.visible?'opacity-30':''}`} /></button>
+                            <button onClick={e=>{e.stopPropagation(); setLayers(layers.map(x=>x.id===l.id?{...x,locked:!x.locked}:x));}}><Lock className={`w-3.5 h-3.5 ${l.locked?'text-red-500':'opacity-30'}`} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {[
+                      { key: 'venue', label: '공연장' },
+                      { key: 'production', label: '공연작품' },
+                      { key: 'staffMeetingDate', label: '스탭회의 날짜', type: 'date' },
+                      { key: 'setupDate', label: '셋업일자', type: 'date' },
+                      { key: 'showDate', label: '공연일', type: 'date' },
+                      { key: 'showTime', label: '공연시간', type: 'time' },
+                      { key: 'lightingDesigner', label: '조명디자이너' },
+                    ].map(field => (
+                      <div key={field.key}>
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">{field.label}</label>
+                        <input
+                          type={field.type || 'text'}
+                          value={showInfo[field.key] || ''}
+                          onChange={e => setShowInfo({ ...showInfo, [field.key]: e.target.value })}
+                          className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">크루</label>
+                      <textarea
+                        value={showInfo.crew || ''}
+                        onChange={e => setShowInfo({ ...showInfo, crew: e.target.value })}
+                        rows={3}
+                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500 resize-none custom-scrollbar"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                {['venue', 'structure', 'fixture', 'shape', 'memo'].map(cat => (
+                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`flex-1 py-1.5 text-[9px] font-bold border-b-2 tracking-tighter ${activeCategory === cat ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
+                    {{venue:'공연장', structure:'구조물', fixture:'조명', shape:'도형', memo:'메모'}[cat]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-2 gap-2">
+                  {getLibItems().map(f => {
+                    const isPl = placingFixture === f.id;
+                    const libW = f.category === 'venue' ? 60 : (f.category === 'shape' ? 60 : (f.category === 'memo' ? 80 : 300));
+                    return (
+                      <div key={f.id} className={`flex flex-col items-center justify-center p-2 rounded-lg border ${isPl ? 'bg-indigo-100 border-indigo-400' : 'bg-slate-50 dark:bg-slate-700/50'}`}>
+                        <button onClick={() => setPlacingFixture(isPl ? null : f.id)} className="w-full h-10 flex justify-center items-center drop-shadow-md [&>svg]:max-w-[80px] [&>svg]:max-h-[35px]" title={f.name}>
+                          {f.render('#64748b', libW, 0, 2, 40, f.name.split(' ')[0], f.src)}
+                        </button>
+                        <span className="text-[10px] text-center mt-1 truncate w-full text-slate-600 dark:text-slate-300">{f.name}</span>
+                      </div>
+                    );
+                  })}
+                  {activeCategory === 'fixture' && (
+                    <button onClick={()=>symbolInputRef.current.click()} className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-400 text-slate-500 dark:text-slate-400 h-[74px]">
+                      <Plus className="w-6 h-6" /><span className="text-[10px]">심볼 추가</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* CENTER PANEL */}
+            <div className="flex-1 relative flex flex-col">
+              
+              <div className={`absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur border border-slate-200 dark:border-slate-700 p-2 rounded-xl z-10 shadow-lg ${showUI ? 'flex' : 'hidden'}`}>
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-md">
+                  <button onClick={undo} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><Undo className="w-4 h-4" /></button>
+                  <button onClick={redo} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><Redo className="w-4 h-4" /></button>
+                </div>
+                <div className="w-px h-5 bg-slate-300"></div>
+                <button onClick={()=>setIsDarkMode(!isDarkMode)} className="p-1.5 text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md">{isDarkMode?<Sun className="w-4 h-4"/>:<Moon className="w-4 h-4"/>}</button>
+                <button onClick={()=>setShowNewDocModal(true)} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="새 문서"><LayoutTemplate className="w-4 h-4"/></button>
+                <button onClick={handleSaveData} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Save className="w-4 h-4"/></button>
+                <button onClick={()=>fileInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Upload className="w-4 h-4"/></button>
+                {!is3DView && <button onClick={()=>{setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요");}} className={`p-1.5 rounded-md ${pdfExportMode?'bg-emerald-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Printer className="w-4 h-4"/></button>}
+                {!is3DView && <button onClick={()=>imageInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="이미지 또는 PDF 도면 추가"><ImageIcon className="w-4 h-4"/></button>}
+                <div className="w-px h-5 bg-slate-300"></div>
+                <button onClick={()=>{setIs3DView(v=>!v); setSelectedIds([]); setPlacingFixture(null);}} className={`flex items-center gap-1 p-1.5 rounded-md font-bold text-xs ${is3DView?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`} title="2D / 3D 보기 전환"><Box className="w-4 h-4"/> {is3DView ? '2D 보기' : '3D 보기'}</button>
+                <div className="w-px h-5 bg-slate-300"></div>
+                {!is3DView ? (
+                  <>
+                    <button onClick={()=>setActiveTool('select')} className={`p-1.5 rounded-md ${activeTool==='select'?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><MousePointer2 className="w-4 h-4"/></button>
+                    <button onClick={()=>setActiveTool('pan')} className={`p-1.5 rounded-md ${activeTool==='pan'?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Hand className="w-4 h-4"/></button>
+                    <div className="w-px h-5 bg-slate-300"></div>
+                    <button onClick={handleCenterView} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Target className="w-4 h-4" /></button>
+                    <button onClick={()=>setView(v=>({...v, zoom:v.zoom*1.2}))} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><ZoomIn className="w-4 h-4" /></button>
+                    <span className="text-xs font-mono w-10 text-center">{Math.round(view.zoom*100)}%</span>
+                    <button onClick={()=>setView(v=>({...v, zoom:v.zoom/1.2}))} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><ZoomOut className="w-4 h-4" /></button>
+                    <div className="w-px h-5 bg-slate-300"></div>
+                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={snapToGrid} onChange={e=>setSnapToGrid(e.target.checked)} className="rounded" /> 스냅</label>
+                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={showAxis} onChange={e=>setShowAxis(e.target.checked)} className="rounded" /> 기준선</label>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={()=>setView3DKey(k=>k+1)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="시점 초기화"><RotateCcw className="w-4 h-4" /></button>
+                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={show3DBeams} onChange={e=>setShow3DBeams(e.target.checked)} className="rounded" /> 빛줄기 표시</label>
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{placingFixture ? '바닥을 클릭해 배치하세요 (Esc 취소)' : '클릭: 선택 / 드래그: 회전 / 휠: 확대축소 / 우클릭드래그: 이동'}</span>
+                  </>
+                )}
+
+                <input type="file" accept=".json" ref={fileInputRef} onChange={handleLoadData} className="hidden" />
+                <input type="file" accept="image/*, application/pdf" ref={imageInputRef} onChange={handleImageUpload} className="hidden" />
+                <input type="file" accept="image/*, .svg, application/pdf, .ai, .dwg, .dxf" ref={symbolInputRef} onChange={handleSymbolUpload} className="hidden" />
+              </div>
+
+              {toastMsg && <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-bold shadow-lg z-50 animate-in fade-in">{toastMsg}</div>}
+
+              {/* 컨텍스트 우클릭 팝업 메뉴 */}
+              {contextMenu && (
+                <div 
+                  className="fixed z-[100] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-lg py-1.5 min-w-[160px] text-sm text-black dark:text-white font-bold" 
+                  style={{ top: contextMenu.y, left: contextMenu.x }} 
+                  onContextMenu={e => e.preventDefault()}
+                  onPointerDown={e => { e.stopPropagation(); }}
+                  onClick={e => { e.stopPropagation(); setContextMenu(null); }}
+                >
+                  {selectedIds.length > 0 ? (
+                    <>
+                      <button onClick={handleCopy} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Copy className="w-4 h-4"/> 복사</button>
+                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
+                      <button onClick={handleDuplicate} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Files className="w-4 h-4"/> 복제</button>
+                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+                      <button onClick={handleGroup} disabled={selectedIds.length < 2} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><Link className="w-4 h-4"/> 그룹 묶기</button>
+                      <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><Unlink className="w-4 h-4"/> 그룹 풀기</button>
+                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+                      <button onClick={deleteSelectedFixtures} className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center gap-2"><Trash2 className="w-4 h-4"/> 삭제</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
+                      <button onClick={handleSelectAll} disabled={fixtures.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><MousePointer2 className="w-4 h-4"/> 전체 선택</button>
+                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+                      <button onClick={undo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Undo className="w-4 h-4"/> 실행 취소</button>
+                      <button onClick={redo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Redo className="w-4 h-4"/> 다시 실행</button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {is3DView && (
+                <ThreeDView
+                  key={view3DKey}
+                  fixtures={fixtures} layers={layers} isDarkMode={isDarkMode} showBeams={show3DBeams}
+                  selectedIds={selectedIds} placingFixture={placingFixture}
+                  onPlaceAt={placeFixtureAt} onSelectFixture={selectFixtureFrom3D} onDeselect={deselectAll3D}
+                />
+              )}
+
+              <div
+                ref={containerRef}
+                className={`flex-1 overflow-hidden relative ${is3DView ? 'hidden' : ''} ${pdfExportMode||placingFixture?'cursor-crosshair':activeTool==='pan'?(isPanning?'cursor-grabbing':'cursor-grab'):'cursor-default'}`}
+                onWheel={handleWheel}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); }}
+                onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+                style={{ backgroundImage: `linear-gradient(to right, ${themeVars.grid} 1px, transparent 1px), linear-gradient(to bottom, ${themeVars.grid} 1px, transparent 1px)`, backgroundSize: `${50*view.zoom}px ${50*view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
+              >
+                {selectionBox && !pdfExportMode && <div className="absolute border border-indigo-400 bg-indigo-500/20 pointer-events-none z-40" style={{ left: Math.min(selectionBox.startX, selectionBox.currX), top: Math.min(selectionBox.startY, selectionBox.currY), width: Math.abs(selectionBox.currX - selectionBox.startX), height: Math.abs(selectionBox.currY - selectionBox.startY) }} />}
+                {pdfExportMode && exportBox && <div className="absolute border-2 border-emerald-400 bg-emerald-500/10 border-dashed pointer-events-none z-40" style={{ left: Math.min(exportBox.startX, exportBox.currX), top: Math.min(exportBox.startY, exportBox.currY), width: Math.abs(exportBox.currX - exportBox.startX), height: Math.abs(exportBox.currY - exportBox.startY) }}><div className="absolute top-2 left-2 bg-emerald-500 text-white text-[10px] px-1 py-0.5 rounded font-bold">A4 비율</div></div>}
+
+                <div className="absolute inset-0 pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
+
+                  {pageSize && (
+                    <div
+                      className="absolute"
+                      style={{
+                        left: -pageSize.widthUnits / 2, top: -pageSize.heightUnits / 2,
+                        width: pageSize.widthUnits, height: pageSize.heightUnits,
+                        background: isDarkMode ? '#1e293b' : '#ffffff',
+                        boxShadow: '0 0 0 1px rgba(100,116,139,0.4), 0 8px 24px rgba(0,0,0,0.25)',
+                        zIndex: -10
+                      }}
+                    >
+                      <span className="absolute -top-5 left-0 text-[10px] font-bold whitespace-nowrap" style={{ color: themeVars.dimText }}>{pageSize.label}</span>
+                    </div>
+                  )}
+
+                  {showAxis && (() => {
+                    // 새로 만들기(도면 바탕)로 생성된 문서가 있으면 눈금자를 용지 바깥으로 밀어내어 항상 용지 밖에서 보이게 함
+                    const rulerHalfW = pageSize ? Math.ceil((pageSize.widthUnits / 2) / 50) * 50 : 400;
+                    const rulerHalfH = pageSize ? Math.ceil((pageSize.heightUnits / 2) / 50) * 50 : 400;
+                    const hBaselineY = -rulerHalfH - 20;
+                    const vBaselineX = rulerHalfW + 20;
+                    const hCount = rulerHalfW / 50, vCount = rulerHalfH / 50;
+                    const hVals = Array.from({ length: hCount * 2 + 1 }, (_, i) => i - hCount);
+                    const vVals = Array.from({ length: vCount * 2 + 1 }, (_, i) => i - vCount);
+                    const svgHalfExtent = Math.max(rulerHalfW, rulerHalfH) + 600;
+                    return (
+                      <svg className="absolute pointer-events-none" style={{ left: -svgHalfExtent, top: -svgHalfExtent, zIndex: -1 }} width={svgHalfExtent * 2} height={svgHalfExtent * 2} viewBox={`${-svgHalfExtent} ${-svgHalfExtent} ${svgHalfExtent * 2} ${svgHalfExtent * 2}`}>
+                        <line x1={-rulerHalfW} y1={hBaselineY} x2={rulerHalfW} y2={hBaselineY} stroke={themeVars.dimLine} strokeWidth="1.5" />
+                        {hVals.map(v => (
+                          <g key={`w-tick-${v}`}>
+                            <line x1={v * 50} y1={hBaselineY} x2={v * 50} y2={v === 0 ? hBaselineY - 12 : hBaselineY - 6} stroke={themeVars.dimLine} strokeWidth="1.5" />
+                            <text x={v * 50} y={v === 0 ? hBaselineY - 16 : hBaselineY - 10} fill={v === 0 ? themeVars.dimTextZero : themeVars.dimText} fontSize="10" fontWeight="bold" textAnchor="middle">{v === 0 ? 'CL (0m)' : `${v}m`}</text>
+                          </g>
+                        ))}
+                        <line x1={vBaselineX} y1={-rulerHalfH} x2={vBaselineX} y2={rulerHalfH} stroke={themeVars.dimLine} strokeWidth="1.5" />
+                        {vVals.map(v => (
+                          <g key={`d-tick-${v}`}>
+                            <line x1={vBaselineX} y1={v * 50} x2={v === 0 ? vBaselineX + 12 : vBaselineX + 6} y2={v * 50} stroke={themeVars.dimLine} strokeWidth="1.5" />
+                            <text x={v === 0 ? vBaselineX + 16 : vBaselineX + 10} y={v * 50 + 3} fill={v === 0 ? themeVars.dimTextZero : themeVars.dimText} fontSize="10" fontWeight="bold">{v === 0 ? 'PL (0m)' : `${-v}m`}</text>
+                          </g>
+                        ))}
+                        <line x1="0" y1={-svgHalfExtent + 200} x2="0" y2={svgHalfExtent - 200} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="10 10" opacity="0.5" />
+                        <line x1={-svgHalfExtent + 200} y1="0" x2={svgHalfExtent - 200} y2="0" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="10 10" opacity="0.5" />
+                      </svg>
+                    );
+                  })()}
+
+                  {[...fixtures].sort((a,b)=>getSortOrder(a.type) - getSortOrder(b.type))
+                  .filter(f=>layers.find(l=>l.id===(f.layerId||'layer_default'))?.visible !== false).map(f => {
+                    const isSel = selectedIds.includes(f.id);
+                    const tInf = FIXTURE_TYPES[f.type];
+                    if (!tInf) return null;
+                    const isLock = layers.find(l=>l.id===(f.layerId||'layer_default'))?.locked;
+                    const cColor = isSel ? themeVars.fixtureSelected : (f.color || themeVars.fixtureNormal);
+                    
+                    return (
+                      <div key={f.id} className={`absolute pointer-events-auto ${isSel?'z-20':'z-10'} ${isLock?'cursor-not-allowed opacity-60':'cursor-move fixture-node'}`} style={{ left: f.x, top: f.y, transform: `translate(-50%, -50%)` }} onPointerDown={e=>handleFixturePointerDown(e, f)}>
+                        <div className={`relative ${isSel?'drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]':''}`} style={{ transform: `rotate(${f.rotation}deg) scale(${f.scale||1})`, transformOrigin: 'center' }}>
+                          {tInf.render(cColor, f.width||100, f.rotation, f.thickness||2, f.height||100, f.text||f.name, f.src, f.bgColor, f.opacity, f.dash, f.rx)}
+                          
+                          {isSel && !isLock && (
+                            <div className="absolute inset-0 pointer-events-none">
+                              {tInf.category === 'fixture' ? (
+                                <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'se')} />
+                              ) : (
+                                <>
+                                  <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-e-resize pointer-events-auto hover:bg-indigo-100" style={{ top: '50%', right: '0px', transform: 'translate(50%, -50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'e')} />
+                                  {['STAGE_PROSCENIUM', 'STAGE_THRUST', 'STAGE_ARENA', 'STAGE_BLACKBOX', 'RECTANGLE', 'CIRCLE', 'CURVE', 'IMAGE', 'LABEL', 'TEXT'].includes(f.type) && (
+                                    <>
+                                      <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-s-resize pointer-events-auto hover:bg-indigo-100" style={{ left: '50%', bottom: '0px', transform: 'translate(-50%, 50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 's')} />
+                                      <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'se')} />
+                                    </>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-center pointer-events-none">
+                          {tInf.category === 'fixture' && f.name && f.name !== tInf.name && <div className="text-[9px] font-bold text-indigo-600">{f.name}</div>}
+                          {f.channel && tInf.category === 'fixture' && <div className="text-[10px] font-bold text-indigo-500">{f.channel}</div>}
+                        </div>
+                        
+                        {isSel && (
+                          <div className="rotate-handle absolute left-1/2 w-8 h-8 -translate-x-1/2 flex items-center justify-center cursor-crosshair pointer-events-auto" onPointerDown={e=>handleRotatePointerDown(e, f)} style={{ top: `${-30 - 20 * ((f.scale||1)-1)}px` }}>
+                            <div className="w-3.5 h-3.5 bg-indigo-400 rounded-full border-[2px] border-white z-10" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {placingFixture && hoverPos && FIXTURE_TYPES[placingFixture.startsWith('csym_') ? 'CUSTOM_SYMBOL' : placingFixture] && (
+                    <div className="absolute pointer-events-none z-30" style={{ left: hoverPos.x, top: hoverPos.y, transform: `translate(-50%, -50%)` }}>
+                      <div className="absolute top-1/2 left-[-4000px] w-[8000px] h-px bg-indigo-500/60 border-t border-dashed border-indigo-500"></div>
+                      <div className="absolute left-1/2 top-[-4000px] w-px h-[8000px] bg-indigo-500/60 border-l border-dashed border-indigo-500"></div>
+                      <div className="opacity-60 drop-shadow-md">
+                        {(() => {
+                          const t = FIXTURE_TYPES[placingFixture.startsWith('csym_') ? 'CUSTOM_SYMBOL' : placingFixture];
+                          return t.render('#a5b4fc', ['shape','memo','image'].includes(t.category)?150:(t.category==='venue'?500:300), 0, 2, ['shape','image'].includes(t.category)?100:(t.category==='venue'?400:(t.category==='memo'?50:undefined)), t.name);
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT PANEL (Properties) */}
+            <div className={`w-52 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex-col z-10 shadow-xl overflow-hidden selection:bg-black selection:text-white ${showUI ? 'flex' : 'hidden'}`}>
+              <div className="p-4 bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-700">
+                <div className="flex justify-between items-center mb-2">
+                  <h2 className="text-sm font-bold flex items-center gap-2 text-black dark:text-white"><Settings2 className="w-4 h-4" /> 기구 속성</h2>
+                  {selectedIds.length > 0 && <button onClick={deleteSelectedFixtures} className="p-1 text-red-500 hover:bg-red-100 rounded"><Trash2 className="w-4 h-4" /></button>}
+                </div>
+                
+                <div className="flex gap-1 mb-1 mt-3">
+                  <button onClick={handleCopy} disabled={selectedIds.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                    <Copy className="w-3 h-3" /> 복사
+                  </button>
+                  <button onClick={handlePaste} disabled={clipboard.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                    <ClipboardPaste className="w-3 h-3" /> 붙여넣기
+                  </button>
+                  <button onClick={handleDuplicate} disabled={selectedIds.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded hover:bg-indigo-100 disabled:opacity-30 transition-colors">
+                    <Files className="w-3 h-3" /> 복제
+                  </button>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={handleGroup} disabled={selectedIds.length < 2} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                    <Link className="w-3 h-3" /> 그룹 묶기
+                  </button>
+                  <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                    <Unlink className="w-3 h-3" /> 그룹 풀기
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 flex-1 overflow-y-auto custom-scrollbar text-black dark:text-white font-bold">
+                {selectedIds.length > 1 ? (
+                  <div className="space-y-4">
+                    <div className="bg-indigo-50 p-3 rounded text-center"><span className="text-indigo-600 font-bold">{selectedIds.length}개</span> <span className="text-black font-bold">선택됨</span></div>
+                    <p className="text-xs text-black dark:text-white font-bold">아래 속성을 변경하면 선택된 객체들에 일괄 적용됩니다.</p>
+
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 색상 변경</label>
+                      <div className="flex gap-1"><input type="color" onChange={e=>updateSelectedFixtures('color', e.target.value)} className="w-9 h-9 p-0.5" /><input type="text" onChange={e=>updateSelectedFixtures('color', e.target.value)} className="flex-1 border rounded p-2 text-sm text-black font-bold" placeholder="ex) #ff0000" /></div>
+                    </div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 배경색 (BgColor)</label>
+                      <div className="flex gap-1"><input type="color" onChange={e=>updateSelectedFixtures('bgColor', e.target.value)} className="w-9 h-9 p-0.5" /><button onClick={()=>updateSelectedFixtures('bgColor', '')} className="flex-1 border rounded text-xs bg-white text-black font-bold">투명 적용</button></div>
+                    </div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 투명도 (Opacity)</label><input type="range" min="0.1" max="1" step="0.1" onChange={e=>updateSelectedFixtures('opacity', parseFloat(e.target.value))} className="w-full" /></div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 외곽선 굵기 (Thickness)</label><input type="range" min="0.5" max="20" step="0.5" onChange={e=>updateSelectedFixtures('thickness', parseFloat(e.target.value))} className="w-full" /></div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 설치 높이 (3D, Height)</label><input type="range" min="0" max="15" step="0.1" onChange={e=>updateSelectedFixtures('zHeight', parseFloat(e.target.value))} className="w-full" /></div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 외곽선 형태</label>
+                        <select onChange={e=>updateSelectedFixtures('dash', e.target.value === 'solid' ? '' : e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" defaultValue="none">
+                          <option value="none" disabled>선택...</option>
+                          <option value="solid">실선 (Solid)</option>
+                          <option value="8 8">파선 (Dashed)</option>
+                          <option value="2 4">점선 (Dotted)</option>
+                          <option value="12 4 2 4">일점쇄선 (Dash-Dot)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 모서리 둥글기</label>
+                        <input type="range" min="0" max="100" step="1" onChange={e=>updateSelectedFixtures('rx', parseFloat(e.target.value))} className="w-full" />
+                      </div>
+                    </div>
+
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 레이어 변경</label><select onChange={e=>updateSelectedFixtures('layerId', e.target.value)} className="w-full border rounded p-2 text-sm bg-white text-black font-bold" defaultValue=""><option value="" disabled>선택...</option>{layers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+
+                    {(() => {
+                      const fixtureCount = fixtures.filter(f => selectedIds.includes(f.id) && FIXTURE_TYPES[f.type]?.category === 'fixture').length;
+                      return fixtureCount > 0 && (
+                        <div className="border-t pt-3">
+                          <label className="text-xs font-bold text-black dark:text-white mb-1 block">포트/채널 자동 배정 ({fixtureCount}개, 왼쪽→오른쪽 순)</label>
+                          <div className="grid grid-cols-3 gap-1 mb-2">
+                            <div><span className="text-[10px] text-black dark:text-white font-bold block mb-0.5">포트(고정)</span><input type="text" value={autoChannelPort} onChange={e=>setAutoChannelPort(e.target.value)} placeholder="비우면 유지" className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" /></div>
+                            <div><span className="text-[10px] text-black dark:text-white font-bold block mb-0.5">시작 채널</span><input type="number" value={autoChannelStart} onChange={e=>setAutoChannelStart(e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" /></div>
+                            <div><span className="text-[10px] text-black dark:text-white font-bold block mb-0.5">간격</span><input type="number" value={autoChannelStep} onChange={e=>setAutoChannelStep(e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" /></div>
+                          </div>
+                          <button onClick={handleAutoAssignChannel} className="w-full py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700">채널 자동 배정 적용</button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : selectedIds.length === 1 && firstSel && typeInfo ? (
+                  <div className="space-y-4">
+                    <div className="bg-slate-50 p-3 rounded-lg border flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="w-full text-sm font-bold text-black truncate">{customSymbolNames[firstSel.customSymbolId||firstSel.type] || firstSel.name}</div>
+                        <div className="text-[10px] text-black font-bold mt-0.5">ID: {firstSel.id.split('_')[1]}</div>
+                      </div>
+                    </div>
+
+                    {typeInfo.category === 'memo' && (
+                      <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">메모 내용 (Text)</label><textarea value={firstSel.text||''} onChange={e=>updateSelectedFixtures('text', e.target.value)} className="w-full h-20 border rounded p-2 text-sm bg-white text-black font-bold" /></div>
+                    )}
+                    {typeInfo.category !== 'memo' && (
+                      <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">이름 (Name)</label><input type="text" value={firstSel.name||''} onChange={e=>updateSelectedFixtures('name', e.target.value)} className="w-full border rounded p-2 text-sm bg-white text-black font-bold" /></div>
+                    )}
+
+                    {['venue', 'structure', 'shape', 'memo', 'image'].includes(typeInfo.category) && (
+                      <>
+                        <div>
+                          <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>가로/길이 (Width)</span></label>
+                          <div className="flex gap-2">
+                            <input type="range" min="0.5" max="40" step={snapToGrid?"1":"0.1"} value={firstSel.width/50} onChange={e=>updateSelectedFixtures('width', parseFloat(e.target.value)*50)} className="flex-1" />
+                            <div className="flex items-center border rounded px-1 w-16 bg-white"><input type="number" value={Number((firstSel.width/50).toFixed(1))} onChange={e=>updateSelectedFixtures('width', parseFloat(e.target.value)*50)} className="w-full text-xs text-right outline-none text-black font-bold" /><span className="text-[10px] text-black font-bold">m</span></div>
+                          </div>
+                        </div>
+                        {['STAGE_PROSCENIUM', 'STAGE_THRUST', 'STAGE_ARENA', 'STAGE_BLACKBOX', 'RECTANGLE', 'CIRCLE', 'CURVE', 'LABEL', 'IMAGE'].includes(firstSel.type) && (
+                          <div>
+                            <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>세로 (Height)</span></label>
+                            <div className="flex gap-2">
+                              <input type="range" min="0.5" max="40" step={snapToGrid?"1":"0.1"} value={(firstSel.height||100)/50} onChange={e=>updateSelectedFixtures('height', parseFloat(e.target.value)*50)} className="flex-1" />
+                              <div className="flex items-center border rounded px-1 w-16 bg-white"><input type="number" value={Number(((firstSel.height||100)/50).toFixed(1))} onChange={e=>updateSelectedFixtures('height', parseFloat(e.target.value)*50)} className="w-full text-xs text-right outline-none text-black font-bold" /><span className="text-[10px] text-black font-bold">m</span></div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div>
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>비율 크기 (Scale)</span><span>{(firstSel.scale||1).toFixed(1)}x</span></label>
+                      <input type="range" min="0.1" max="10" step="0.1" value={firstSel.scale||1} onChange={e=>updateSelectedFixtures('scale', parseFloat(e.target.value))} className="w-full" />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="flex-1"><label className="text-xs text-black dark:text-white font-bold mb-1 block">배경색 (BgColor)</label><div className="flex gap-1"><input type="color" value={firstSel.bgColor||'#ffffff'} onChange={e=>updateSelectedFixtures('bgColor', e.target.value)} className="w-8 h-8 p-0" /><button onClick={()=>updateSelectedFixtures('bgColor', '')} className="flex-1 border rounded text-[10px] bg-slate-50 text-black font-bold">투명</button></div></div>
+                      <div className="flex-1"><label className="text-xs text-black dark:text-white font-bold mb-1 block">선색상 (Color)</label><input type="color" value={(firstSel.color&&/^#[0-9A-F]{6}$/i.test(firstSel.color))?firstSel.color:'#ffffff'} onChange={e=>updateSelectedFixtures('color', e.target.value)} className="w-full h-8 p-0" /></div>
+                    </div>
+
+                    <div>
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>투명도 (Opacity)</span><span>{Math.round((firstSel.opacity||1)*100)}%</span></label>
+                      <input type="range" min="0.1" max="1" step="0.1" value={firstSel.opacity||1} onChange={e=>updateSelectedFixtures('opacity', parseFloat(e.target.value))} className="w-full" />
+                    </div>
+
+                    <div>
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>외곽선 굵기 (Thickness)</span><span>{firstSel.thickness || 2}px</span></label>
+                      <input type="range" min="0.5" max="20" step="0.5" value={firstSel.thickness || 2} onChange={e=>updateSelectedFixtures('thickness', parseFloat(e.target.value))} className="w-full" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 border-t pt-3 mt-1">
+                      <div>
+                        <label className="text-xs text-black dark:text-white font-bold mb-1 block">외곽선 형태 (Dash)</label>
+                        <select value={firstSel.dash || ''} onChange={e=>updateSelectedFixtures('dash', e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold">
+                          <option value="">실선 (Solid)</option>
+                          <option value="8 8">파선 (Dashed)</option>
+                          <option value="2 4">점선 (Dotted)</option>
+                          <option value="12 4 2 4">일점쇄선 (Dash-Dot)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="flex justify-between text-xs text-black dark:text-white font-bold mb-1"><span>모서리 둥글기</span><span>{firstSel.rx || 0}px</span></label>
+                        <input type="range" min="0" max="100" step="1" value={firstSel.rx || 0} onChange={e=>updateSelectedFixtures('rx', parseFloat(e.target.value))} className="w-full" />
+                      </div>
+                    </div>
+
+                    {['fixture', 'structure'].includes(typeInfo.category) && (
+                      <div className="border-t pt-3">
+                        <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>설치 높이 (3D, Height)</span><span>{(firstSel.zHeight != null ? firstSel.zHeight : RIG_HEIGHT).toFixed(1)}m</span></label>
+                        <input type="range" min="0" max="15" step="0.1" value={firstSel.zHeight != null ? firstSel.zHeight : RIG_HEIGHT} onChange={e=>updateSelectedFixtures('zHeight', parseFloat(e.target.value))} className="w-full" />
+                      </div>
+                    )}
+
+                    {typeInfo.category === 'fixture' && (
+                      <div className="grid grid-cols-2 gap-2 border-t pt-3">
+                        <div><label className="text-xs text-black dark:text-white font-bold mb-1 block">포트/채널</label><input type="text" value={firstSel.channel} onChange={e=>updateSelectedFixtures('channel', e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" placeholder="ex) 1/24" /></div>
+                        <div><label className="text-xs text-black dark:text-white font-bold mb-1 block">디머</label><input type="text" value={firstSel.dimmer} onChange={e=>updateSelectedFixtures('dimmer', e.target.value)} className="w-full border rounded p-1.5 text-xs bg-white text-black font-bold" placeholder="ex) A/1" /></div>
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 gap-2 border-t pt-3">
+                       <div className="bg-slate-50 p-2 rounded text-center border"><span className="text-[10px] text-black font-bold block">X 좌표</span><span className="text-xs font-mono text-black font-bold">{(firstSel.x/50).toFixed(2)}m</span></div>
+                       <div className="bg-slate-50 p-2 rounded text-center border"><span className="text-[10px] text-black font-bold block">Y 좌표</span><span className="text-xs font-mono text-black font-bold">{(firstSel.y/50).toFixed(2)}m</span></div>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-black dark:text-white font-bold">
+                    <MousePointer2 className="w-10 h-10 opacity-50 mb-2" />
+                    <p className="text-sm text-center">캔버스에서 객체를<br/>선택해 편집하세요.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* 새 문서 만들기 모달 (Adobe Illustrator 스타일) */}
+          {showNewDocModal && (() => {
+            const preview = computePageSize(newDocSetting);
+            const presetCard = (key) => {
+              const isSel = !newDocSetting.useCustom && newDocSetting.preset === key;
+              const dims = PAPER_SIZES_MM[key];
+              const ratio = dims.w / dims.h;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setNewDocSetting(s => ({ ...s, preset: key, useCustom: false }))}
+                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
+                >
+                  <div className="h-12 flex items-center justify-center">
+                    <div className="bg-white border border-slate-400 shadow-sm" style={{ width: 34 * ratio, height: 34 }} />
+                  </div>
+                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-slate-300'}`}>{key}</span>
+                </button>
+              );
+            };
+            const orientBtn = (key, label, wide) => {
+              const isSel = !newDocSetting.useCustom && newDocSetting.orientation === key;
+              return (
+                <button
+                  onClick={() => setNewDocSetting(s => ({ ...s, orientation: key, useCustom: false }))}
+                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
+                >
+                  <div className="h-8 flex items-center justify-center">
+                    <div className="bg-white border border-slate-400 shadow-sm" style={{ width: wide ? 30 : 20, height: wide ? 20 : 30 }} />
+                  </div>
+                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-slate-300'}`}>{label}</span>
+                </button>
+              );
+            };
+            return (
+              <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center" onPointerDown={() => setShowNewDocModal(false)}>
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[440px] p-6 text-black dark:text-white" onPointerDown={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-5">
+                    <h2 className="text-base font-bold flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-indigo-500" /> 새 문서 만들기</h2>
+                    <button onClick={() => setShowNewDocModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><X className="w-4 h-4" /></button>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-2">용지 크기</label>
+                    <div className="flex gap-2">{['A4', 'A3'].map(presetCard)}</div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-2">방향</label>
+                    <div className="flex gap-2">
+                      {orientBtn('landscape', '가로', true)}
+                      {orientBtn('portrait', '세로', false)}
+                    </div>
+                  </div>
+
+                  <div className="mb-2">
+                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" checked={newDocSetting.useCustom} onChange={e => setNewDocSetting(s => ({ ...s, useCustom: e.target.checked }))} className="rounded" />
+                      커스텀 크기 사용 (mm)
+                    </label>
+                  </div>
+
+                  {newDocSetting.useCustom && (
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">가로 (mm)</label>
+                        <input type="number" min="10" value={newDocSetting.customW} onChange={e => setNewDocSetting(s => ({ ...s, customW: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">세로 (mm)</label>
+                        <input type="number" min="10" value={newDocSetting.customH} onChange={e => setNewDocSetting(s => ({ ...s, customH: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 rounded-md px-3 py-2 mb-5">
+                    미리보기: {preview.widthMM} × {preview.heightMM} mm ({preview.label})
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowNewDocModal(false)} className="flex-1 py-2 rounded-md text-sm font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700">취소</button>
+                    <button onClick={handleCreateNewDoc} className="flex-1 py-2 rounded-md text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700">새 문서 만들기</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
