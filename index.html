@@ -106,7 +106,7 @@
   <div id="root"></div>
 
   <script type="text/babel" data-type="module">
-    import React, { useState, useRef, useCallback, useEffect } from 'react';
+    import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
     import {
       Move, ZoomIn, ZoomOut, Settings2, Plus,
@@ -115,7 +115,7 @@
       Layers, Eye, EyeOff, Lock, Unlock, Edit2, Hand,
       Save, Upload, Printer, Sun, Moon, Maximize2, Copy, ClipboardPaste, Files, Shapes,
       Sparkles, Loader2, X, FileText, Image as ImageIcon, Link, Unlink, Undo, Redo, Square, Droplet,
-      Box, RotateCcw
+      Box, RotateCcw, ClipboardList
     } from 'lucide-react';
 
     // --- AI API Helper ---
@@ -774,6 +774,8 @@
       const [pdfExportMode, setPdfExportMode] = useState(false);
       const [exportBox, setExportBox] = useState(null);
       const [clipboard, setClipboard] = useState([]);
+      const [showEquipList, setShowEquipList] = useState(false);
+      const equipListRef = useRef(null);
 
       const [pageSize, setPageSize] = useState(null);
       const [showNewDocModal, setShowNewDocModal] = useState(false);
@@ -1283,7 +1285,7 @@
         const handleKeyDown = (e) => {
           const isInputFocused = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
           if (e.key === 'Tab' && !isInputFocused) { e.preventDefault(); setShowUI(prev => !prev); } 
-          else if (e.key === 'Escape') { setPlacingFixture(null); setSelectedIds([]); setPdfExportMode(false); setExportBox(null); setShowUI(true); } 
+          else if (e.key === 'Escape') { setPlacingFixture(null); setSelectedIds([]); setPdfExportMode(false); setExportBox(null); setShowUI(true); setShowEquipList(false); }
           else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isInputFocused) { e.preventDefault(); e.shiftKey ? redo() : undo(); } 
           else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !isInputFocused) { e.preventDefault(); redo(); } 
           else if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused && selectedIds.length > 0) {
@@ -1560,6 +1562,67 @@
         return { 'image': 1, 'venue': 2, 'shape': 3, 'structure': 4, 'fixture': 5, 'memo': 6 }[cat] || 0;
       };
 
+      // 바닥(도면)에 배치된 조명 심볼을 종류별로 자동 집계 (숨김 레이어는 제외)
+      const equipmentList = useMemo(() => {
+        const groups = {};
+        fixtures.forEach(f => {
+          const tInfo = FIXTURE_TYPES[f.type];
+          if (!tInfo || tInfo.category !== 'fixture') return;
+          const layer = layers.find(l => l.id === (f.layerId || 'layer_default'));
+          if (layer && layer.visible === false) return;
+
+          const isCustom = f.type === 'CUSTOM_SYMBOL';
+          const key = isCustom ? `custom_${f.customSymbolId}` : f.type;
+          if (!groups[key]) {
+            const customSym = isCustom ? customSymbols.find(s => s.id === f.customSymbolId) : null;
+            const defaultName = isCustom ? (customSym?.name || f.name) : tInfo.name;
+            groups[key] = {
+              key,
+              name: customSymbolNames[key.replace('custom_', '')] || defaultName,
+              count: 0,
+              render: tInfo.render,
+              src: isCustom ? (customSym?.src || f.src || '') : '',
+              libraries: new Set(),
+              totalWattage: 0
+            };
+          }
+          groups[key].count += 1;
+          if (f.library) groups[key].libraries.add(f.library);
+          const wattNum = parseFloat((f.wattage || '').toString().replace(/[^0-9.]/g, ''));
+          if (!isNaN(wattNum)) groups[key].totalWattage += wattNum;
+        });
+        return Object.values(groups).map(g => ({ ...g, library: [...g.libraries].join(', ') })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+      }, [fixtures, layers, customSymbols, customSymbolNames]);
+
+      const handleDownloadEquipListPDF = async () => {
+        if (!equipListRef.current || equipmentList.length === 0) return;
+        showToast("PDF 생성 중...");
+        try {
+          const canvas = await window.html2canvas(equipListRef.current, { backgroundColor: '#ffffff', scale: 2 });
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+          const margin = 10;
+          const imgWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+          const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+          const imgHeight = canvas.height * imgWidth / canvas.width;
+          const imgData = canvas.toDataURL('image/png');
+
+          let heightLeft = imgHeight;
+          let position = margin;
+          pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+          while (heightLeft > 0) {
+            position = margin - (imgHeight - heightLeft);
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+          }
+
+          const userInput = prompt("저장할 PDF 파일 이름:", `equipment_list_${new Date().toISOString().slice(0, 10)}.pdf`);
+          if (userInput) await saveFileHelper(pdf.output('blob'), userInput.endsWith('.pdf') ? userInput : `${userInput}.pdf`, '장비 리스트 PDF', 'application/pdf', '.pdf');
+        } catch (error) { console.error(error); showToast("PDF 생성 오류"); }
+      };
+
       return (
         <div className={`flex h-screen w-full font-sans overflow-hidden ${isDarkMode ? 'dark' : ''}`}>
           <div className="flex h-full w-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
@@ -1675,6 +1738,7 @@
                 <button onClick={()=>fileInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Upload className="w-4 h-4"/></button>
                 {!is3DView && <button onClick={()=>{setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요");}} className={`p-1.5 rounded-md ${pdfExportMode?'bg-emerald-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Printer className="w-4 h-4"/></button>}
                 {!is3DView && <button onClick={()=>imageInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="이미지 또는 PDF 도면 추가"><ImageIcon className="w-4 h-4"/></button>}
+                <button onClick={()=>setShowEquipList(true)} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="장비 리스트 (조명 종류/수량 자동 집계)"><ClipboardList className="w-4 h-4"/></button>
                 <div className="w-px h-5 bg-slate-300"></div>
                 <button onClick={()=>{setIs3DView(v=>!v); setSelectedIds([]); setPlacingFixture(null);}} className={`flex items-center gap-1 p-1.5 rounded-md font-bold text-xs ${is3DView?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`} title="2D / 3D 보기 전환"><Box className="w-4 h-4"/> {is3DView ? '2D 보기' : '3D 보기'}</button>
                 <div className="w-px h-5 bg-slate-300"></div>
@@ -1735,6 +1799,72 @@
                       <button onClick={redo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Redo className="w-4 h-4"/> 다시 실행</button>
                     </>
                   )}
+                </div>
+              )}
+
+              {showEquipList && (
+                <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-6" onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+                      <h2 className="text-base font-bold flex items-center gap-2 text-black dark:text-white"><ClipboardList className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> 장비 리스트 (조명 종류/수량)</h2>
+                      <button onClick={() => setShowEquipList(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><X className="w-5 h-5 text-black dark:text-white" /></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-slate-100 dark:bg-slate-900">
+                      <div ref={equipListRef} className="bg-white p-6 text-black">
+                        <div className="mb-4 border-b-2 border-slate-800 pb-3">
+                          <div className="text-lg font-bold">{showInfo.production || '무제 공연'} — 조명 장비 리스트</div>
+                          <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-4">
+                            <span>공연장: {showInfo.venue || '-'}</span>
+                            <span>조명디자이너: {showInfo.lightingDesigner || '-'}</span>
+                            <span>작성일: {new Date().toISOString().slice(0, 10)}</span>
+                          </div>
+                        </div>
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="border-b-2 border-slate-800">
+                              <th className="text-left py-2 px-2 w-12">No.</th>
+                              <th className="text-left py-2 px-2 w-16">심볼</th>
+                              <th className="text-left py-2 px-2">품명 (조명 종류)</th>
+                              <th className="text-left py-2 px-2">라이브러리</th>
+                              <th className="text-right py-2 px-2 w-20">수량</th>
+                              <th className="text-right py-2 px-2 w-24">단일 용량</th>
+                              <th className="text-right py-2 px-2 w-24">용량 합계</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {equipmentList.map((item, i) => (
+                              <tr key={item.key} className="border-b border-slate-200">
+                                <td className="py-2 px-2">{i + 1}</td>
+                                <td className="py-2 px-2"><div className="w-10 h-10 flex items-center justify-center">{item.render('#334155', 40, 0, 2, 40, '', item.src)}</div></td>
+                                <td className="py-2 px-2 font-semibold">{item.name}</td>
+                                <td className="py-2 px-2">{item.library || '-'}</td>
+                                <td className="py-2 px-2 text-right font-bold">{item.count}</td>
+                                <td className="py-2 px-2 text-right">{item.totalWattage > 0 ? `${Number((item.totalWattage / item.count).toFixed(1))}W` : '-'}</td>
+                                <td className="py-2 px-2 text-right">{item.totalWattage > 0 ? `${item.totalWattage}W` : '-'}</td>
+                              </tr>
+                            ))}
+                            {equipmentList.length === 0 && (
+                              <tr><td colSpan="7" className="py-8 text-center text-slate-400">배치된 조명 기구가 없습니다.</td></tr>
+                            )}
+                          </tbody>
+                          {equipmentList.length > 0 && (
+                            <tfoot>
+                              <tr className="border-t-2 border-slate-800 font-bold">
+                                <td colSpan="4" className="py-2 px-2 text-right">총 수량 / 총 용량</td>
+                                <td className="py-2 px-2 text-right">{equipmentList.reduce((s, it) => s + it.count, 0)}</td>
+                                <td className="py-2 px-2"></td>
+                                <td className="py-2 px-2 text-right">{equipmentList.reduce((s, it) => s + it.totalWattage, 0)}W</td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+                    <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+                      <button onClick={() => setShowEquipList(false)} className="px-4 py-2 rounded-md text-sm font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600">닫기</button>
+                      <button onClick={handleDownloadEquipListPDF} disabled={equipmentList.length === 0} className="px-4 py-2 rounded-md text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5 disabled:opacity-50"><FileText className="w-4 h-4" /> PDF 다운로드</button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1962,6 +2092,13 @@
                     )}
                     {typeInfo.category !== 'memo' && (
                       <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">이름 (Name)</label><input type="text" value={firstSel.name||''} onChange={e=>updateSelectedFixtures('name', e.target.value)} className="w-full border rounded p-2 text-sm bg-white text-black font-bold" /></div>
+                    )}
+
+                    {typeInfo.category === 'fixture' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">라이브러리 (Library)</label><input type="text" value={firstSel.library||''} onChange={e=>updateSelectedFixtures('library', e.target.value)} className="w-full border rounded p-2 text-sm bg-white text-black font-bold" placeholder="ex) ETC S4" /></div>
+                        <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">용량 (Watt)</label><input type="text" value={firstSel.wattage||''} onChange={e=>updateSelectedFixtures('wattage', e.target.value)} className="w-full border rounded p-2 text-sm bg-white text-black font-bold" placeholder="ex) 750W" /></div>
+                      </div>
                     )}
 
                     {['venue', 'structure', 'shape', 'memo', 'image'].includes(typeInfo.category) && (
