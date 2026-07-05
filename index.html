@@ -306,6 +306,37 @@
           );
         }
       },
+      HANGING_PIPE: {
+        id: 'HANGING_PIPE', category: 'structure', name: '조명 파이프 (Hanging Pipe)',
+        render: (color = '#fff', width = 300, r=0, t=2, h=20, txt='', src='', bg='', op=1, dash='', rx=0) => (
+          <svg width={width} height="20" viewBox={`${-width / 2} -10 ${width} 20`} style={{ overflow: 'visible', opacity: op }}>
+            <line x1={-width / 2} y1="0" x2={width / 2} y2="0" stroke={bg || color} strokeWidth={Math.max(6, t * 3)} strokeLinecap="round" />
+            <line x1={-width / 2} y1="0" x2={width / 2} y2="0" stroke={color} strokeWidth={Math.max(2, t)} strokeLinecap="round" strokeDasharray={dash || "16 12"} opacity="0.6" />
+            <circle cx={-width / 2} cy="0" r={Math.max(3, t * 2)} fill={color} />
+            <circle cx={width / 2} cy="0" r={Math.max(3, t * 2)} fill={color} />
+          </svg>
+        )
+      },
+      LADDER_TRUSS: {
+        id: 'LADDER_TRUSS', category: 'structure', name: '사다리 트러스 (Ladder Truss)',
+        render: (color = '#fff', width = 300, r=0, t=2, h=30, txt='', src='', bg='', op=1, dash='', rx=0) => {
+          const segs = Math.max(1, Math.round(width / 30));
+          const segW = width / segs;
+          const pts = Array.from({ length: segs + 1 }, (_, i) => -width / 2 + i * segW);
+          return (
+            <svg width={width} height="30" viewBox={`${-width / 2} -15 ${width} 30`} style={{ overflow: 'visible', opacity: op }}>
+              {pts.slice(0, -1).map((x, i) => (
+                <line key={`b${i}`} x1={x} y1={i % 2 === 0 ? -15 : 15} x2={pts[i + 1]} y2={i % 2 === 0 ? 15 : -15} stroke={color} strokeWidth={Math.max(1, t / 2)} />
+              ))}
+              <line x1={-width / 2} y1="-15" x2={width / 2} y2="-15" stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} />
+              <line x1={-width / 2} y1="15" x2={width / 2} y2="15" stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} />
+              {pts.map((x, i) => (
+                <line key={`v${i}`} x1={x} y1="-15" x2={x} y2="15" stroke={color} strokeWidth={Math.max(1, t / 2)} />
+              ))}
+            </svg>
+          );
+        }
+      },
       RULER_H: {
         id: 'RULER_H', category: 'structure', name: '가로자 (Ruler H, m)',
         render: (color = '#fff', width = 500, r = 0, t = 2, h = 24, txt = '', src = '', bg = '', op = 1, dash = '', rx = 0) => {
@@ -404,6 +435,39 @@
       )},
       AUTO_PAR: { id: 'AUTO_PAR', category: 'fixture', name: '자동 파캔', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
         <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ opacity: op }}><circle cx="0" cy="0" r="12" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="0" r="8" fill="none" stroke={color} strokeWidth={t} strokeDasharray="2 2" /><path d="M -16 0 A 16 16 0 0 1 16 0" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      S4_19: { id: 'S4_19', category: 'fixture', name: 'Source Four 19° (Profile)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -9 -12 C -9 -19 9 -19 9 -12" fill="none" stroke={color} strokeWidth={t} /><rect x="-2" y="-21" width="4" height="4" fill={color} /><polygon points="-6,-12 6,-12 4,2 -4,2" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><polygon points="-3.5,2 3.5,2 4.5,18 -4.5,18" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-5" y="18" width="10" height="2" fill={color} /></svg>
+      )},
+      S4_36: { id: 'S4_36', category: 'fixture', name: 'Source Four 36° (Profile)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -9 -12 C -9 -19 9 -19 9 -12" fill="none" stroke={color} strokeWidth={t} /><rect x="-2" y="-21" width="4" height="4" fill={color} /><polygon points="-6,-12 6,-12 4,2 -4,2" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><polygon points="-3.5,2 3.5,2 5,14 -5,14" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-6" y="14" width="12" height="2" fill={color} /></svg>
+      )},
+      S4_50: { id: 'S4_50', category: 'fixture', name: 'Source Four 50° (Profile)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -9 -12 C -9 -19 9 -19 9 -12" fill="none" stroke={color} strokeWidth={t} /><rect x="-2" y="-21" width="4" height="4" fill={color} /><polygon points="-6,-12 6,-12 4,2 -4,2" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><polygon points="-3.5,2 3.5,2 6,10 -6,10" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-7" y="10" width="14" height="2" fill={color} /></svg>
+      )},
+      FRESNEL_8: { id: 'FRESNEL_8', category: 'fixture', name: '프레넬 8인치 (Fresnel 8")', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -11 -8 C -11 -16 11 -16 11 -8" fill="none" stroke={color} strokeWidth={t} /><rect x="-2" y="-18" width="4" height="4" fill={color} /><rect x="-9" y="-8" width="18" height="16" rx={rx || 2} fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="0" r="6" fill="none" stroke={color} strokeWidth={Math.max(1, t/2)} /><circle cx="0" cy="0" r="3" fill={color} /><rect x="-10" y="10" width="20" height="2" fill={color} /></svg>
+      )},
+      PAR_64: { id: 'PAR_64', category: 'fixture', name: 'PAR 64 (MFL)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -8 -10 C -8 -18 8 -18 8 -10" fill="none" stroke={color} strokeWidth={t} /><rect x="-2" y="-20" width="4" height="4" fill={color} /><path d="M -7,-10 C -7,-15 7,-15 7,-10 L 7,8 L -7,8 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-7.5" y="8" width="15" height="2" fill={color} /></svg>
+      )},
+      MOVING_SPOT_MAC: { id: 'MOVING_SPOT_MAC', category: 'fixture', name: '무빙 스팟 (Mac 스타일)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-11" y="-16" width="22" height="6" rx="2" fill={bg || "none"} stroke={color} strokeWidth={t} /><path d="M -8,-10 L -8,2 L 8,2 L 8,-10" fill="none" stroke={color} strokeWidth={t} /><ellipse cx="0" cy="1" rx="6.5" ry="8.5" fill={bg || "none"} stroke={color} strokeWidth={t} /><circle cx="0" cy="6" r="3" fill={color} /></svg>
+      )},
+      MOVING_WASH_LED: { id: 'MOVING_WASH_LED', category: 'fixture', name: '무빙 워시 (LED Pixel)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-12" y="-16" width="24" height="6" rx="2" fill={bg || "none"} stroke={color} strokeWidth={t} /><path d="M -9,-10 L -9,3 L 9,3 L 9,-10" fill="none" stroke={color} strokeWidth={t} /><path d="M -8,-5 L 8,-5 C 10,-2 10,2 8,5 L -8,5 C -10,2 -10,-2 -8,-5 Z" fill={bg || "none"} stroke={color} strokeWidth={t} /><circle cx="-3" cy="0" r="1.3" fill={color} /><circle cx="3" cy="0" r="1.3" fill={color} /><circle cx="0" cy="-2.5" r="1.3" fill={color} /><circle cx="0" cy="2.5" r="1.3" fill={color} /></svg>
+      )},
+      LED_BATTEN: { id: 'LED_BATTEN', category: 'fixture', name: 'LED 배튼 (4ft Strip)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><rect x="-18" y="-4" width="36" height="8" rx="1" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-14" y="-2" width="4" height="4" fill={color} /><rect x="-6" y="-2" width="4" height="4" fill={color} /><rect x="2" y="-2" width="4" height="4" fill={color} /><rect x="10" y="-2" width="4" height="4" fill={color} /></svg>
+      )},
+      ERS_26: { id: 'ERS_26', category: 'fixture', name: 'ERS 26° (Source Four)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><path d="M -8,-10 L 8,-10 L 5.2,2 L -5.2,2 Z" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><rect x="-4.8" y="2" width="9.6" height="10" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -3.2,-10 L 3.2,-10 L 0,-14.8 Z" fill="none" stroke={color} strokeWidth={t} /><line x1="-8" y1="-10" x2="8" y2="-10" stroke={color} strokeWidth={t} /></svg>
+      )},
+      FRESNEL_6: { id: 'FRESNEL_6', category: 'fixture', name: '프레넬 6인치 (Fresnel 6")', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><circle cx="0" cy="0" r="12" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><circle cx="0" cy="0" r="7.2" fill="none" stroke={color} strokeWidth={Math.max(1, t/2)} strokeDasharray="2 2" /><circle cx="0" cy="0" r="3.2" fill="none" stroke={color} strokeWidth={Math.max(1, t/2)} strokeDasharray="2 2" /><rect x="-3.2" y="12" width="6.4" height="3.2" fill="none" stroke={color} strokeWidth={t} /></svg>
+      )},
+      CYC_LIGHT_1CELL: { id: 'CYC_LIGHT_1CELL', category: 'fixture', name: '사이클로라마 (1-Cell, Asymmetric)', render: (color, w, r, t=2, h, txt, src, bg, op=1, dash='', rx=0) => (
+        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ overflow: 'visible', opacity: op }}><polygon points="-12,-10 12,-10 8,10 -8,10" fill={bg || "none"} stroke={color} strokeWidth={t} strokeDasharray={dash || undefined} /><path d="M -8,-10 Q 0,2 8,-10" fill="none" stroke={color} strokeWidth={Math.max(1, t*0.7)} /></svg>
       )},
       CUSTOM_SYMBOL: {
         id: 'CUSTOM_SYMBOL', category: 'fixture', name: '사용자 정의 심볼',
@@ -739,6 +803,48 @@
       return <div ref={mountRef} className="absolute inset-0" />;
     }
 
+    // 개별 기구 노드를 별도 컴포넌트로 분리하고 React.memo로 감싸서,
+    // 하나의 기구를 드래그/팬 하는 동안 나머지 미변경 기구들은 리렌더링을 건너뛰도록 함.
+    // (props로 전달되는 콜백들은 부모에서 useCallback([])으로 고정된 참조여야 memo가 효과를 냄)
+    const FixtureNode = React.memo(function FixtureNode({ f, isSel, isLock, cColor, tInf, onFixturePointerDown, onResizePointerDown, onRotatePointerDown }) {
+      return (
+        <div className={`absolute pointer-events-auto ${isSel?'z-20':'z-10'} ${isLock?'cursor-not-allowed opacity-60':'cursor-move fixture-node'}`} style={{ left: f.x, top: f.y, transform: `translate(-50%, -50%)` }} onPointerDown={e=>onFixturePointerDown(e, f)}>
+          <div className={`relative ${isSel?'drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]':''}`} style={{ transform: `rotate(${f.rotation}deg) scale(${f.scale||1})`, transformOrigin: 'center' }}>
+            {tInf.render(cColor, f.width||100, f.rotation, f.thickness||2, f.height||100, f.text||f.name, f.src, f.bgColor, f.opacity, f.dash, f.rx)}
+
+            {isSel && !isLock && (
+              <div className="absolute inset-0 pointer-events-none">
+                {tInf.category === 'fixture' ? (
+                  <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>onResizePointerDown(e, f, 'se')} />
+                ) : (
+                  <>
+                    <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-e-resize pointer-events-auto hover:bg-indigo-100" style={{ top: '50%', right: '0px', transform: 'translate(50%, -50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>onResizePointerDown(e, f, 'e')} />
+                    {['STAGE_PROSCENIUM', 'STAGE_THRUST', 'STAGE_ARENA', 'STAGE_BLACKBOX', 'RECTANGLE', 'CIRCLE', 'CURVE', 'IMAGE', 'LABEL', 'TEXT'].includes(f.type) && (
+                      <>
+                        <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-s-resize pointer-events-auto hover:bg-indigo-100" style={{ left: '50%', bottom: '0px', transform: 'translate(-50%, 50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>onResizePointerDown(e, f, 's')} />
+                        <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>onResizePointerDown(e, f, 'se')} />
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-center pointer-events-none">
+            {tInf.category === 'fixture' && f.name && f.name !== tInf.name && <div className="text-[9px] font-bold text-indigo-600">{f.name}</div>}
+            {f.channel && tInf.category === 'fixture' && <div className="text-[10px] font-bold text-indigo-500">{f.channel}</div>}
+          </div>
+
+          {isSel && (
+            <div className="rotate-handle absolute left-1/2 w-8 h-8 -translate-x-1/2 flex items-center justify-center cursor-crosshair pointer-events-auto" onPointerDown={e=>onRotatePointerDown(e, f)} style={{ top: `${-30 - 20 * ((f.scale||1)-1)}px` }}>
+              <div className="w-3.5 h-3.5 bg-indigo-400 rounded-full border-[2px] border-white z-10" />
+            </div>
+          )}
+        </div>
+      );
+    });
+
     export default function App() {
       const [fixtures, setFixtures] = useState([]);
       const [selectedIds, setSelectedIds] = useState([]);
@@ -810,6 +916,13 @@
       const historyIndexRef = useRef(0);
       const historyTimeoutRef = useRef(null);
       const isDraggingRef = useRef(false);
+
+      // 매 렌더링마다 최신 상태를 담아두는 ref. 드래그 핸들러를 useCallback([])로 고정해
+      // 미선택 상태의 기구가 불필요하게 리렌더되지 않도록 함 (성능 최적화)
+      const liveRef = useRef({});
+      liveRef.current = { pdfExportMode, layers, selectedIds, fixtures, view };
+      const rafIdRef = useRef(null);
+      const pendingMoveRef = useRef(null);
 
       const pushHistory = useCallback((newFixtures) => {
         const currentHist = historyRef.current;
@@ -1484,7 +1597,32 @@
         }
       };
 
+      // 네이티브 pointermove는 화면 주사율보다 훨씬 자주 발생할 수 있어(고폴링레이트 마우스 등),
+      // 매 이벤트마다 setFixtures를 호출하면 기구가 많은 도면에서 드래그/팬이 버벅일 수 있음.
+      // requestAnimationFrame으로 묶어 프레임당 최대 1회만 실제 상태 갱신을 수행하도록 함.
+      const flushPendingMove = () => {
+        if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
+        const ev = pendingMoveRef.current;
+        pendingMoveRef.current = null;
+        if (ev) handlePointerMove(ev);
+      };
+
+      const scheduledPointerMove = (e) => {
+        pendingMoveRef.current = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey };
+        if (rafIdRef.current == null) {
+          rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = null;
+            const ev = pendingMoveRef.current;
+            pendingMoveRef.current = null;
+            if (ev) handlePointerMove(ev);
+          });
+        }
+      };
+
+      useEffect(() => () => { if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current); }, []);
+
       const handlePointerUp = () => {
+        flushPendingMove();
         if (pdfExportMode && exportBox) {
           const box = { ...exportBox }; setExportBox(null); setPdfExportMode(false);
           if (Math.abs(box.currX - box.startX) < 50) { showToast("영역이 너무 작습니다."); return; }
@@ -1494,11 +1632,14 @@
         setIsPanning(false); setDragInfo(null); setSelectionBox(null);
       };
 
-      const handleFixturePointerDown = (e, fixture) => {
+      // liveRef를 참조하는 안정적 콜백(참조 불변) — 자식 기구 노드의 React.memo가
+      // 정상적으로 리렌더를 건너뛸 수 있도록 함
+      const handleFixturePointerDown = useCallback((e, fixture) => {
+        const { pdfExportMode, layers, selectedIds, fixtures } = liveRef.current;
         if (pdfExportMode) return; e.stopPropagation();
         const layer = layers.find(l => l.id === (fixture.layerId || 'layer_default'));
         if (layer && layer.locked) return;
-        
+
         let newSel = [...selectedIds];
         // 우클릭이면 객체를 선택하되 드래그는 발생시키지 않음
         if (e.button === 2) {
@@ -1515,25 +1656,27 @@
             else newSel = newSel.filter(id => id !== fixture.id);
           } else newSel.push(fixture.id);
         } else if (!newSel.includes(fixture.id)) newSel = [fixture.id];
-        
+
         const fSel = getGroupedSelection(newSel, fixtures);
         setSelectedIds(fSel); isDraggingRef.current = true;
         setDragInfo({ type: 'fixture', startX: e.clientX, startY: e.clientY, items: fixtures.filter(f => fSel.includes(f.id)).map(f => ({ id: f.id, ox: f.x, oy: f.y })) });
-      };
+      }, [getGroupedSelection]);
 
-      const handleResizePointerDown = (e, fixture, handlePos) => {
+      const handleResizePointerDown = useCallback((e, fixture, handlePos) => {
+        const { pdfExportMode, layers, selectedIds, view } = liveRef.current;
         if (pdfExportMode) return; e.stopPropagation();
         if (layers.find(l => l.id === (fixture.layerId || 'layer_default'))?.locked) return;
         if (!selectedIds.includes(fixture.id)) setSelectedIds([fixture.id]);
         isDraggingRef.current = true;
         const rect = containerRef.current.getBoundingClientRect();
         setDragInfo({ type: 'resize', targetId: fixture.id, handlePos, startX: (e.clientX - rect.left - view.x) / view.zoom, startY: (e.clientY - rect.top - view.y) / view.zoom, startW: fixture.width || 150, startH: fixture.height || 100, startScale: fixture.scale || 1 });
-      };
+      }, []);
 
-      const handleRotatePointerDown = (e, fixture) => {
+      const handleRotatePointerDown = useCallback((e, fixture) => {
+        const { pdfExportMode } = liveRef.current;
         if (pdfExportMode) return; e.stopPropagation();
         isDraggingRef.current = true; setDragInfo({ type: 'rotate', targetId: fixture.id });
-      };
+      }, []);
 
       const updateSelectedFixtures = (key, value) => {
         if (selectedIds.length === 0) return;
@@ -1882,7 +2025,7 @@
                 className={`flex-1 overflow-hidden relative ${is3DView ? 'hidden' : ''} ${pdfExportMode||placingFixture?'cursor-crosshair':activeTool==='pan'?(isPanning?'cursor-grabbing':'cursor-grab'):'cursor-default'}`}
                 onWheel={handleWheel}
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); }}
-                onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+                onPointerDown={handlePointerDown} onPointerMove={scheduledPointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
                 style={{ backgroundImage: `linear-gradient(to right, ${themeVars.grid} 1px, transparent 1px), linear-gradient(to bottom, ${themeVars.grid} 1px, transparent 1px)`, backgroundSize: `${50*view.zoom}px ${50*view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
               >
                 {selectionBox && !pdfExportMode && <div className="absolute border border-indigo-400 bg-indigo-500/20 pointer-events-none z-40" style={{ left: Math.min(selectionBox.startX, selectionBox.currX), top: Math.min(selectionBox.startY, selectionBox.currY), width: Math.abs(selectionBox.currX - selectionBox.startX), height: Math.abs(selectionBox.currY - selectionBox.startY) }} />}
@@ -1944,42 +2087,15 @@
                     if (!tInf) return null;
                     const isLock = layers.find(l=>l.id===(f.layerId||'layer_default'))?.locked;
                     const cColor = isSel ? themeVars.fixtureSelected : (f.color || themeVars.fixtureNormal);
-                    
+
                     return (
-                      <div key={f.id} className={`absolute pointer-events-auto ${isSel?'z-20':'z-10'} ${isLock?'cursor-not-allowed opacity-60':'cursor-move fixture-node'}`} style={{ left: f.x, top: f.y, transform: `translate(-50%, -50%)` }} onPointerDown={e=>handleFixturePointerDown(e, f)}>
-                        <div className={`relative ${isSel?'drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]':''}`} style={{ transform: `rotate(${f.rotation}deg) scale(${f.scale||1})`, transformOrigin: 'center' }}>
-                          {tInf.render(cColor, f.width||100, f.rotation, f.thickness||2, f.height||100, f.text||f.name, f.src, f.bgColor, f.opacity, f.dash, f.rx)}
-                          
-                          {isSel && !isLock && (
-                            <div className="absolute inset-0 pointer-events-none">
-                              {tInf.category === 'fixture' ? (
-                                <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'se')} />
-                              ) : (
-                                <>
-                                  <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-e-resize pointer-events-auto hover:bg-indigo-100" style={{ top: '50%', right: '0px', transform: 'translate(50%, -50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'e')} />
-                                  {['STAGE_PROSCENIUM', 'STAGE_THRUST', 'STAGE_ARENA', 'STAGE_BLACKBOX', 'RECTANGLE', 'CIRCLE', 'CURVE', 'IMAGE', 'LABEL', 'TEXT'].includes(f.type) && (
-                                    <>
-                                      <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-s-resize pointer-events-auto hover:bg-indigo-100" style={{ left: '50%', bottom: '0px', transform: 'translate(-50%, 50%)', width: '10px', height: '10px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 's')} />
-                                      <div className="absolute bg-white border-2 border-indigo-600 rounded-sm cursor-se-resize pointer-events-auto hover:bg-indigo-100" style={{ bottom: '0px', right: '0px', transform: 'translate(50%, 50%)', width: '12px', height: '12px', zIndex: 30 }} onPointerDown={e=>handleResizePointerDown(e, f, 'se')} />
-                                    </>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-center pointer-events-none">
-                          {tInf.category === 'fixture' && f.name && f.name !== tInf.name && <div className="text-[9px] font-bold text-indigo-600">{f.name}</div>}
-                          {f.channel && tInf.category === 'fixture' && <div className="text-[10px] font-bold text-indigo-500">{f.channel}</div>}
-                        </div>
-                        
-                        {isSel && (
-                          <div className="rotate-handle absolute left-1/2 w-8 h-8 -translate-x-1/2 flex items-center justify-center cursor-crosshair pointer-events-auto" onPointerDown={e=>handleRotatePointerDown(e, f)} style={{ top: `${-30 - 20 * ((f.scale||1)-1)}px` }}>
-                            <div className="w-3.5 h-3.5 bg-indigo-400 rounded-full border-[2px] border-white z-10" />
-                          </div>
-                        )}
-                      </div>
+                      <FixtureNode
+                        key={f.id}
+                        f={f} isSel={isSel} isLock={isLock} cColor={cColor} tInf={tInf}
+                        onFixturePointerDown={handleFixturePointerDown}
+                        onResizePointerDown={handleResizePointerDown}
+                        onRotatePointerDown={handleRotatePointerDown}
+                      />
                     );
                   })}
                   
