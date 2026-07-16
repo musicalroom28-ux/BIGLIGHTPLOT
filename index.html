@@ -42,7 +42,7 @@
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
-    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #525252; }
     .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: #64748b; }
     
     /* 툴팁 */
@@ -506,6 +506,37 @@
 
     const toThreeColor = (c, fallback) => (c && /^#([0-9A-Fa-f]{3}){1,2}$/.test(c)) ? c : fallback;
 
+    // --- 색상 패널(CMYK/색상환) 변환 유틸 ---
+    const hexToRgb = (hex) => {
+      const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+      if (!m) return { r: 255, g: 255, b: 255 };
+      const n = parseInt(m[1], 16);
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    };
+    const rgbToHex = (r, g, b) => '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+    const rgbToCmyk = (r, g, b) => {
+      const rn = r / 255, gn = g / 255, bn = b / 255;
+      const k = 1 - Math.max(rn, gn, bn);
+      if (k >= 1) return { c: 0, m: 0, y: 0, k: 100 };
+      return {
+        c: Math.round(((1 - rn - k) / (1 - k)) * 100),
+        m: Math.round(((1 - gn - k) / (1 - k)) * 100),
+        y: Math.round(((1 - bn - k) / (1 - k)) * 100),
+        k: Math.round(k * 100)
+      };
+    };
+    const cmykToRgb = (c, m, y, k) => {
+      const cn = c / 100, mn = m / 100, yn = y / 100, kn = k / 100;
+      return { r: 255 * (1 - cn) * (1 - kn), g: 255 * (1 - mn) * (1 - kn), b: 255 * (1 - yn) * (1 - kn) };
+    };
+    const hslToHex = (h, s, l) => {
+      s /= 100; l /= 100;
+      const k = n => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return rgbToHex(255 * f(0), 255 * f(8), 255 * f(4));
+    };
+
     const add3DFixture = (THREE, parentGroup, f, showBeams, selected) => {
       const tInfo = FIXTURE_TYPES[f.type];
       if (!tInfo) return;
@@ -638,7 +669,7 @@
 
           const w = mount.clientWidth || 800, h = mount.clientHeight || 600;
           scene = new THREE.Scene();
-          scene.background = new THREE.Color(isDarkMode ? 0x0f172a : 0xe2e8f0);
+          scene.background = new THREE.Color(isDarkMode ? 0x1e1e1e : 0xe2e8f0);
           scene.fog = new THREE.Fog(scene.background.getHex(), 30, 90);
 
           camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 500);
@@ -665,12 +696,12 @@
           dirLight.shadow.mapSize.set(1024, 1024);
           scene.add(dirLight);
 
-          const floorMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x1e293b : 0xf8fafc, roughness: 0.9 });
+          const floorMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x2d2d2d : 0xf8fafc, roughness: 0.9 });
           const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMat);
           floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
           scene.add(floor);
 
-          const grid = new THREE.GridHelper(60, 60, isDarkMode ? 0x334155 : 0xcbd5e1, isDarkMode ? 0x1e293b : 0xe2e8f0);
+          const grid = new THREE.GridHelper(60, 60, isDarkMode ? 0x525252 : 0xcbd5e1, isDarkMode ? 0x2d2d2d : 0xe2e8f0);
           grid.position.y = 0.001;
           scene.add(grid);
 
@@ -796,8 +827,8 @@
 
       useEffect(() => {
         const refs = sceneRefs.current;
-        if (refs.floorMat) refs.floorMat.color.set(isDarkMode ? 0x1e293b : 0xf8fafc);
-        if (refs.scene && refs.scene.background) refs.scene.background.set(isDarkMode ? 0x0f172a : 0xe2e8f0);
+        if (refs.floorMat) refs.floorMat.color.set(isDarkMode ? 0x2d2d2d : 0xf8fafc);
+        if (refs.scene && refs.scene.background) refs.scene.background.set(isDarkMode ? 0x1e1e1e : 0xe2e8f0);
       }, [isDarkMode]);
 
       return <div ref={mountRef} className="absolute inset-0" />;
@@ -862,6 +893,8 @@
       const [editLayerName, setEditLayerName] = useState('');
 
       const [leftPanelTab, setLeftPanelTab] = useState('layers');
+      const [rightPanelTab, setRightPanelTab] = useState('props');
+      const [openMenu, setOpenMenu] = useState(null);
       const [showInfo, setShowInfo] = useState({
         venue: '', production: '', staffMeetingDate: '', setupDate: '',
         showDate: '', showTime: '', lightingDesigner: '', crew: ''
@@ -966,7 +999,7 @@
       }, []);
 
       const themeVars = isDarkMode ? {
-        bg: '#0f172a', grid: 'rgba(255,255,255,0.05)', dimLine: '#475569', dimText: '#94a3b8', dimTextZero: '#cbd5e1', fixtureNormal: '#e2e8f0', fixtureSelected: '#818cf8', libNormal: '#94a3b8', libPlacing: '#a5b4fc'
+        bg: '#1e1e1e', grid: 'rgba(255,255,255,0.05)', dimLine: '#5c5c5c', dimText: '#a3a3a3', dimTextZero: '#d4d4d4', fixtureNormal: '#e5e5e5', fixtureSelected: '#818cf8', libNormal: '#a3a3a3', libPlacing: '#a5b4fc'
       } : {
         bg: '#f8fafc', grid: 'rgba(0,0,0,0.05)', dimLine: '#94a3b8', dimText: '#64748b', dimTextZero: '#334155', fixtureNormal: '#334155', fixtureSelected: '#4f46e5', libNormal: '#64748b', libPlacing: '#6366f1'
       };
@@ -1766,28 +1799,128 @@
         } catch (error) { console.error(error); showToast("PDF 생성 오류"); }
       };
 
+      const topMenus = [
+        { key: 'file', label: '파일(F)', items: [
+          { label: '새 문서...', icon: LayoutTemplate, onClick: () => setShowNewDocModal(true) },
+          { label: '저장', icon: Save, onClick: handleSaveData },
+          { label: '불러오기...', icon: Upload, onClick: () => fileInputRef.current.click() },
+          { label: '이미지/PDF 도면 추가...', icon: ImageIcon, onClick: () => imageInputRef.current.click(), disabled: is3DView },
+          { label: 'PDF로 내보내기...', icon: Printer, onClick: () => { setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요"); }, disabled: is3DView },
+        ]},
+        { key: 'edit', label: '편집(E)', items: [
+          { label: '실행 취소', icon: Undo, onClick: undo },
+          { label: '다시 실행', icon: Redo, onClick: redo },
+          { label: '복사', icon: Copy, onClick: handleCopy, disabled: selectedIds.length === 0 },
+          { label: '붙여넣기', icon: ClipboardPaste, onClick: handlePaste, disabled: clipboard.length === 0 },
+          { label: '복제', icon: Files, onClick: handleDuplicate, disabled: selectedIds.length === 0 },
+          { label: '삭제', icon: Trash2, onClick: deleteSelectedFixtures, disabled: selectedIds.length === 0 },
+        ]},
+        { key: 'object', label: '오브젝트(O)', items: [
+          { label: '전체 선택', icon: MousePointer2, onClick: handleSelectAll, disabled: fixtures.length === 0 },
+          { label: '그룹 묶기', icon: Link, onClick: handleGroup, disabled: selectedIds.length < 2 },
+          { label: '그룹 풀기', icon: Unlink, onClick: handleUngroup, disabled: !fixtures.some(f => selectedIds.includes(f.id) && f.groupId) },
+        ]},
+        { key: 'view', label: '보기(V)', items: [
+          { label: is3DView ? '2D 보기로 전환' : '3D 보기로 전환', icon: Box, onClick: () => { setIs3DView(v => !v); setSelectedIds([]); setPlacingFixture(null); } },
+          { label: '화면 중앙 정렬', icon: Target, onClick: handleCenterView, disabled: is3DView },
+          { label: '확대', icon: ZoomIn, onClick: () => setView(v => ({ ...v, zoom: v.zoom * 1.2 })), disabled: is3DView },
+          { label: '축소', icon: ZoomOut, onClick: () => setView(v => ({ ...v, zoom: v.zoom / 1.2 })), disabled: is3DView },
+          { label: snapToGrid ? '스냅 끄기' : '스냅 켜기', icon: CheckSquare, onClick: () => setSnapToGrid(v => !v), disabled: is3DView },
+          { label: showAxis ? '기준선 숨기기' : '기준선 표시', icon: Target, onClick: () => setShowAxis(v => !v), disabled: is3DView },
+          { label: isDarkMode ? '라이트 모드' : '다크 모드', icon: isDarkMode ? Sun : Moon, onClick: () => setIsDarkMode(v => !v) },
+        ]},
+        { key: 'window', label: '윈도우(W)', items: [
+          { label: '장비 리스트', icon: ClipboardList, onClick: () => setShowEquipList(true) },
+          { label: '패널 표시/숨기기 (Tab)', icon: Layers, onClick: () => setShowUI(v => !v) },
+        ]},
+        { key: 'help', label: '도움말(H)', items: [
+          { label: '단축키 안내', icon: FileText, onClick: () => showToast("Tab: 패널 숨기기/표시 · Esc: 선택 취소 · 우클릭: 메뉴") },
+        ]},
+      ];
+
       return (
-        <div className={`flex h-screen w-full font-sans overflow-hidden ${isDarkMode ? 'dark' : ''}`}>
-          <div className="flex h-full w-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
-            
+        <div className={`flex flex-col h-screen w-full font-sans overflow-hidden ${isDarkMode ? 'dark' : ''}`}>
+
+          {/* TOP MENU BAR (Adobe Illustrator 스타일) */}
+          {showUI && (
+            <div className="relative flex items-center h-9 bg-slate-100 dark:bg-neutral-900 border-b border-slate-300 dark:border-neutral-700 z-30 shrink-0 select-none">
+              {openMenu && <div className="fixed inset-0 z-30" onClick={() => setOpenMenu(null)} onContextMenu={e => e.preventDefault()} />}
+              <div className="flex items-center gap-2 px-3 h-full border-r border-slate-300 dark:border-neutral-700 relative z-40">
+                <div className="w-5 h-5 rounded bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">BL</div>
+              </div>
+              {topMenus.map(menu => (
+                <div key={menu.key} className="relative h-full">
+                  <button
+                    onClick={() => setOpenMenu(m => m === menu.key ? null : menu.key)}
+                    className={`h-full px-3 text-xs font-bold relative z-40 ${openMenu === menu.key ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-neutral-300 hover:bg-slate-200 dark:hover:bg-neutral-700'}`}
+                  >
+                    {menu.label}
+                  </button>
+                  {openMenu === menu.key && (
+                    <div className="absolute top-full left-0 min-w-[210px] bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 shadow-2xl rounded-b-md py-1 z-40 text-sm">
+                      {menu.items.map((it, i) => (
+                        <button
+                          key={i}
+                          disabled={it.disabled}
+                          onClick={() => { it.onClick(); setOpenMenu(null); }}
+                          className="w-full text-left px-4 py-2 flex items-center gap-2 font-bold text-black dark:text-white hover:bg-slate-100 dark:hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          <it.icon className="w-3.5 h-3.5" /> {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="flex-1" />
+              <div className="pr-3 text-[10px] font-bold text-slate-500 dark:text-neutral-500 tracking-wide">BIGLIGHT PLOT</div>
+            </div>
+          )}
+
+          <div className="flex flex-1 min-h-0 w-full bg-slate-50 dark:bg-neutral-900 text-slate-800 dark:text-neutral-200">
+
+            {/* LEFT TOOLBOX (Adobe Illustrator 스타일 아이콘 툴바) */}
+            <div className={`w-11 bg-white dark:bg-neutral-800 border-r border-slate-200 dark:border-neutral-700 flex-col items-center py-2 gap-1 z-10 shrink-0 ${showUI ? 'flex' : 'hidden'}`}>
+              {!is3DView ? (
+                <>
+                  <button onClick={()=>setActiveTool('select')} title="선택 도구" className={`p-2 rounded-md ${activeTool==='select'?'bg-indigo-500 text-white':'text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700'}`}><MousePointer2 className="w-4 h-4"/></button>
+                  <button onClick={()=>setActiveTool('pan')} title="손 도구 (Pan)" className={`p-2 rounded-md ${activeTool==='pan'?'bg-indigo-500 text-white':'text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700'}`}><Hand className="w-4 h-4"/></button>
+                  <div className="w-6 h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
+                  <button onClick={handleCenterView} title="화면 중앙 정렬" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><Target className="w-4 h-4" /></button>
+                  <button onClick={()=>setView(v=>({...v, zoom:v.zoom*1.2}))} title="확대" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><ZoomIn className="w-4 h-4" /></button>
+                  <button onClick={()=>setView(v=>({...v, zoom:v.zoom/1.2}))} title="축소" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><ZoomOut className="w-4 h-4" /></button>
+                  <span className="text-[9px] font-mono text-slate-500 dark:text-neutral-400">{Math.round(view.zoom*100)}%</span>
+                </>
+              ) : (
+                <button onClick={()=>setView3DKey(k=>k+1)} title="시점 초기화" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><RotateCcw className="w-4 h-4" /></button>
+              )}
+              <div className="w-6 h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
+              <button onClick={undo} title="실행 취소" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><Undo className="w-4 h-4" /></button>
+              <button onClick={redo} title="다시 실행" className="p-2 rounded-md text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700"><Redo className="w-4 h-4" /></button>
+              <div className="w-6 h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
+              <button onClick={()=>{setIs3DView(v=>!v); setSelectedIds([]); setPlacingFixture(null);}} title="2D / 3D 보기 전환" className={`p-2 rounded-md ${is3DView?'bg-indigo-500 text-white':'text-slate-500 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-700'}`}><Box className="w-4 h-4"/></button>
+              <div className="flex-1"></div>
+              <button onClick={()=>setIsDarkMode(!isDarkMode)} title="다크/라이트 모드" className="p-2 rounded-md text-amber-500 hover:bg-slate-100 dark:hover:bg-neutral-700">{isDarkMode?<Sun className="w-4 h-4"/>:<Moon className="w-4 h-4"/>}</button>
+            </div>
+
             {/* LEFT PANEL */}
-            <div className={`w-48 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col z-10 shadow-xl ${showUI ? 'flex' : 'hidden'}`}>
-              <div className="p-4 bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-700">
+            <div className={`w-48 bg-white dark:bg-neutral-800 border-r border-slate-200 dark:border-neutral-700 flex-col z-10 shadow-xl ${showUI ? 'flex' : 'hidden'}`}>
+              <div className="p-4 bg-slate-100 dark:bg-neutral-900 border-b dark:border-neutral-700">
                 <h1 className="text-lg font-bold flex items-center gap-2"><Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />BIGLIGHT PLOT</h1>
               </div>
               
-              <div className="flex bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-                <button onClick={() => setLeftPanelTab('layers')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'layers' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Layers className="w-3.5 h-3.5" /> 레이어</button>
-                <button onClick={() => setLeftPanelTab('showInfo')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'showInfo' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><FileText className="w-3.5 h-3.5" /> 공연정보</button>
+              <div className="flex bg-slate-100 dark:bg-neutral-900 border-b border-slate-200 dark:border-neutral-700">
+                <button onClick={() => setLeftPanelTab('layers')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'layers' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-neutral-400'}`}><Layers className="w-3.5 h-3.5" /> 레이어</button>
+                <button onClick={() => setLeftPanelTab('showInfo')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${leftPanelTab === 'showInfo' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-neutral-400'}`}><FileText className="w-3.5 h-3.5" /> 공연정보</button>
               </div>
 
-              <div className={`p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col h-56 ${leftPanelTab === 'layers' ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
+              <div className={`p-4 border-b border-slate-200 dark:border-neutral-700 flex flex-col h-56 ${leftPanelTab === 'layers' ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
                 {leftPanelTab === 'layers' ? (
                   <>
-                    <div className="flex justify-between mb-3"><span className="text-xs font-semibold text-slate-500 dark:text-slate-400">목록</span><button onClick={() => {const id=`layer_${Date.now()}`; setLayers([{id, name:`새 레이어`, visible:true, locked:false}, ...layers]); setActiveLayerId(id);}}><Plus className="w-4 h-4 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"/></button></div>
+                    <div className="flex justify-between mb-3"><span className="text-xs font-semibold text-slate-500 dark:text-neutral-400">목록</span><button onClick={() => {const id=`layer_${Date.now()}`; setLayers([{id, name:`새 레이어`, visible:true, locked:false}, ...layers]); setActiveLayerId(id);}}><Plus className="w-4 h-4 text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white"/></button></div>
                     <div className="overflow-y-auto custom-scrollbar space-y-1">
                       {layers.map(l => (
-                        <div key={l.id} onClick={() => setActiveLayerId(l.id)} className={`flex items-center p-2 rounded text-xs cursor-pointer ${activeLayerId === l.id ? 'bg-indigo-100 dark:bg-indigo-600/30' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                        <div key={l.id} onClick={() => setActiveLayerId(l.id)} className={`flex items-center p-2 rounded text-xs cursor-pointer ${activeLayerId === l.id ? 'bg-indigo-100 dark:bg-indigo-600/30' : 'hover:bg-slate-200 dark:hover:bg-neutral-700'}`}>
                           {editingLayerId === l.id ? (
                             <input autoFocus value={editLayerName} onChange={e=>setEditLayerName(e.target.value)} onBlur={()=>{setLayers(layers.map(x=>x.id===l.id?{...x,name:editLayerName||'이름 없음'}:x)); setEditingLayerId(null);}} className="flex-1 w-0 bg-transparent outline-none border border-indigo-400 rounded px-1" />
                           ) : (
@@ -1813,31 +1946,31 @@
                       { key: 'lightingDesigner', label: '조명디자이너' },
                     ].map(field => (
                       <div key={field.key}>
-                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">{field.label}</label>
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 block mb-0.5">{field.label}</label>
                         <input
                           type={field.type || 'text'}
                           value={showInfo[field.key] || ''}
                           onChange={e => setShowInfo({ ...showInfo, [field.key]: e.target.value })}
-                          className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500"
                         />
                       </div>
                     ))}
                     <div>
-                      <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">크루</label>
+                      <label className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 block mb-0.5">크루</label>
                       <textarea
                         value={showInfo.crew || ''}
                         onChange={e => setShowInfo({ ...showInfo, crew: e.target.value })}
                         rows={3}
-                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500 resize-none custom-scrollbar"
+                        className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-600 rounded px-1.5 py-1 text-xs outline-none focus:border-indigo-500 resize-none custom-scrollbar"
                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex bg-slate-100 dark:bg-neutral-900 border-b border-slate-200 dark:border-neutral-700">
                 {['venue', 'structure', 'fixture', 'shape', 'memo'].map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`flex-1 py-1.5 text-[9px] font-bold border-b-2 tracking-tighter ${activeCategory === cat ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
+                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`flex-1 py-1.5 text-[9px] font-bold border-b-2 tracking-tighter ${activeCategory === cat ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-neutral-400'}`}>
                     {{venue:'공연장', structure:'구조물', fixture:'조명', shape:'도형', memo:'메모'}[cat]}
                   </button>
                 ))}
@@ -1849,16 +1982,16 @@
                     const isPl = placingFixture === f.id;
                     const libW = f.category === 'venue' ? 60 : (f.category === 'shape' ? 60 : (f.category === 'memo' ? 80 : 300));
                     return (
-                      <div key={f.id} className={`flex flex-col items-center justify-center p-2 rounded-lg border ${isPl ? 'bg-indigo-100 border-indigo-400' : 'bg-slate-50 dark:bg-slate-700/50'}`}>
+                      <div key={f.id} className={`flex flex-col items-center justify-center p-2 rounded-lg border ${isPl ? 'bg-indigo-100 border-indigo-400' : 'bg-slate-50 dark:bg-neutral-700/50'}`}>
                         <button onClick={() => setPlacingFixture(isPl ? null : f.id)} className="w-full h-10 flex justify-center items-center drop-shadow-md [&>svg]:max-w-[80px] [&>svg]:max-h-[35px]" title={f.name}>
                           {f.render('#64748b', libW, 0, 2, 40, f.name.split(' ')[0], f.src)}
                         </button>
-                        <span className="text-[10px] text-center mt-1 truncate w-full text-slate-600 dark:text-slate-300">{f.name}</span>
+                        <span className="text-[10px] text-center mt-1 truncate w-full text-slate-600 dark:text-neutral-300">{f.name}</span>
                       </div>
                     );
                   })}
                   {activeCategory === 'fixture' && (
-                    <button onClick={()=>symbolInputRef.current.click()} className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-400 text-slate-500 dark:text-slate-400 h-[74px]">
+                    <button onClick={()=>symbolInputRef.current.click()} className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-400 text-slate-500 dark:text-neutral-400 h-[74px]">
                       <Plus className="w-6 h-6" /><span className="text-[10px]">심볼 추가</span>
                     </button>
                   )}
@@ -1869,40 +2002,16 @@
             {/* CENTER PANEL */}
             <div className="flex-1 relative flex flex-col">
               
-              <div className={`absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur border border-slate-200 dark:border-slate-700 p-2 rounded-xl z-10 shadow-lg ${showUI ? 'flex' : 'hidden'}`}>
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-md">
-                  <button onClick={undo} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><Undo className="w-4 h-4" /></button>
-                  <button onClick={redo} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><Redo className="w-4 h-4" /></button>
-                </div>
-                <div className="w-px h-5 bg-slate-300"></div>
-                <button onClick={()=>setIsDarkMode(!isDarkMode)} className="p-1.5 text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md">{isDarkMode?<Sun className="w-4 h-4"/>:<Moon className="w-4 h-4"/>}</button>
-                <button onClick={()=>setShowNewDocModal(true)} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="새 문서"><LayoutTemplate className="w-4 h-4"/></button>
-                <button onClick={handleSaveData} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Save className="w-4 h-4"/></button>
-                <button onClick={()=>fileInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Upload className="w-4 h-4"/></button>
-                {!is3DView && <button onClick={()=>{setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요");}} className={`p-1.5 rounded-md ${pdfExportMode?'bg-emerald-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Printer className="w-4 h-4"/></button>}
-                {!is3DView && <button onClick={()=>imageInputRef.current.click()} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="이미지 또는 PDF 도면 추가"><ImageIcon className="w-4 h-4"/></button>}
-                <button onClick={()=>setShowEquipList(true)} className="p-1.5 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="장비 리스트 (조명 종류/수량 자동 집계)"><ClipboardList className="w-4 h-4"/></button>
-                <div className="w-px h-5 bg-slate-300"></div>
-                <button onClick={()=>{setIs3DView(v=>!v); setSelectedIds([]); setPlacingFixture(null);}} className={`flex items-center gap-1 p-1.5 rounded-md font-bold text-xs ${is3DView?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`} title="2D / 3D 보기 전환"><Box className="w-4 h-4"/> {is3DView ? '2D 보기' : '3D 보기'}</button>
-                <div className="w-px h-5 bg-slate-300"></div>
+              <div className={`absolute top-4 left-1/2 -translate-x-1/2 items-center gap-3 bg-white/90 dark:bg-neutral-800/90 backdrop-blur border border-slate-200 dark:border-neutral-700 px-3 py-1.5 rounded-xl z-10 shadow-lg text-xs ${showUI ? 'flex' : 'hidden'}`}>
                 {!is3DView ? (
                   <>
-                    <button onClick={()=>setActiveTool('select')} className={`p-1.5 rounded-md ${activeTool==='select'?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><MousePointer2 className="w-4 h-4"/></button>
-                    <button onClick={()=>setActiveTool('pan')} className={`p-1.5 rounded-md ${activeTool==='pan'?'bg-indigo-500 text-white':'text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Hand className="w-4 h-4"/></button>
-                    <div className="w-px h-5 bg-slate-300"></div>
-                    <button onClick={handleCenterView} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><Target className="w-4 h-4" /></button>
-                    <button onClick={()=>setView(v=>({...v, zoom:v.zoom*1.2}))} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><ZoomIn className="w-4 h-4" /></button>
-                    <span className="text-xs font-mono w-10 text-center">{Math.round(view.zoom*100)}%</span>
-                    <button onClick={()=>setView(v=>({...v, zoom:v.zoom/1.2}))} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"><ZoomOut className="w-4 h-4" /></button>
-                    <div className="w-px h-5 bg-slate-300"></div>
-                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={snapToGrid} onChange={e=>setSnapToGrid(e.target.checked)} className="rounded" /> 스냅</label>
-                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={showAxis} onChange={e=>setShowAxis(e.target.checked)} className="rounded" /> 기준선</label>
+                    <label className="flex items-center gap-1 font-semibold cursor-pointer text-slate-600 dark:text-neutral-300"><input type="checkbox" checked={snapToGrid} onChange={e=>setSnapToGrid(e.target.checked)} className="rounded" /> 스냅</label>
+                    <label className="flex items-center gap-1 font-semibold cursor-pointer text-slate-600 dark:text-neutral-300"><input type="checkbox" checked={showAxis} onChange={e=>setShowAxis(e.target.checked)} className="rounded" /> 기준선</label>
                   </>
                 ) : (
                   <>
-                    <button onClick={()=>setView3DKey(k=>k+1)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md" title="시점 초기화"><RotateCcw className="w-4 h-4" /></button>
-                    <label className="flex items-center gap-1 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" checked={show3DBeams} onChange={e=>setShow3DBeams(e.target.checked)} className="rounded" /> 빛줄기 표시</label>
-                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{placingFixture ? '바닥을 클릭해 배치하세요 (Esc 취소)' : '클릭: 선택 / 드래그: 회전 / 휠: 확대축소 / 우클릭드래그: 이동'}</span>
+                    <label className="flex items-center gap-1 font-semibold cursor-pointer text-slate-600 dark:text-neutral-300"><input type="checkbox" checked={show3DBeams} onChange={e=>setShow3DBeams(e.target.checked)} className="rounded" /> 빛줄기 표시</label>
+                    <span className="font-semibold text-slate-500 dark:text-neutral-400">{placingFixture ? '바닥을 클릭해 배치하세요 (Esc 취소)' : '클릭: 선택 / 드래그: 회전 / 휠: 확대축소 / 우클릭드래그: 이동'}</span>
                   </>
                 )}
 
@@ -1916,7 +2025,7 @@
               {/* 컨텍스트 우클릭 팝업 메뉴 */}
               {contextMenu && (
                 <div 
-                  className="fixed z-[100] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-lg py-1.5 min-w-[160px] text-sm text-black dark:text-white font-bold" 
+                  className="fixed z-[100] bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 shadow-2xl rounded-lg py-1.5 min-w-[160px] text-sm text-black dark:text-white font-bold" 
                   style={{ top: contextMenu.y, left: contextMenu.x }} 
                   onContextMenu={e => e.preventDefault()}
                   onPointerDown={e => { e.stopPropagation(); }}
@@ -1924,22 +2033,22 @@
                 >
                   {selectedIds.length > 0 ? (
                     <>
-                      <button onClick={handleCopy} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Copy className="w-4 h-4"/> 복사</button>
-                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
-                      <button onClick={handleDuplicate} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Files className="w-4 h-4"/> 복제</button>
-                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
-                      <button onClick={handleGroup} disabled={selectedIds.length < 2} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><Link className="w-4 h-4"/> 그룹 묶기</button>
-                      <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><Unlink className="w-4 h-4"/> 그룹 풀기</button>
-                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+                      <button onClick={handleCopy} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2"><Copy className="w-4 h-4"/> 복사</button>
+                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
+                      <button onClick={handleDuplicate} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2"><Files className="w-4 h-4"/> 복제</button>
+                      <div className="h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
+                      <button onClick={handleGroup} disabled={selectedIds.length < 2} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2 disabled:opacity-50"><Link className="w-4 h-4"/> 그룹 묶기</button>
+                      <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2 disabled:opacity-50"><Unlink className="w-4 h-4"/> 그룹 풀기</button>
+                      <div className="h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
                       <button onClick={deleteSelectedFixtures} className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center gap-2"><Trash2 className="w-4 h-4"/> 삭제</button>
                     </>
                   ) : (
                     <>
-                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
-                      <button onClick={handleSelectAll} disabled={fixtures.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50"><MousePointer2 className="w-4 h-4"/> 전체 선택</button>
-                      <div className="h-px bg-slate-200 dark:bg-slate-700 my-1"></div>
-                      <button onClick={undo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Undo className="w-4 h-4"/> 실행 취소</button>
-                      <button onClick={redo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"><Redo className="w-4 h-4"/> 다시 실행</button>
+                      <button onClick={handlePaste} disabled={clipboard.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2 disabled:opacity-50"><ClipboardPaste className="w-4 h-4"/> 붙여넣기</button>
+                      <button onClick={handleSelectAll} disabled={fixtures.length === 0} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2 disabled:opacity-50"><MousePointer2 className="w-4 h-4"/> 전체 선택</button>
+                      <div className="h-px bg-slate-200 dark:bg-neutral-700 my-1"></div>
+                      <button onClick={undo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2"><Undo className="w-4 h-4"/> 실행 취소</button>
+                      <button onClick={redo} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-neutral-700 flex items-center gap-2"><Redo className="w-4 h-4"/> 다시 실행</button>
                     </>
                   )}
                 </div>
@@ -1947,12 +2056,12 @@
 
               {showEquipList && (
                 <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-6" onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
-                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
-                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+                  <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-neutral-700">
                       <h2 className="text-base font-bold flex items-center gap-2 text-black dark:text-white"><ClipboardList className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> 장비 리스트 (조명 종류/수량)</h2>
-                      <button onClick={() => setShowEquipList(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><X className="w-5 h-5 text-black dark:text-white" /></button>
+                      <button onClick={() => setShowEquipList(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-neutral-700 rounded"><X className="w-5 h-5 text-black dark:text-white" /></button>
                     </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-slate-100 dark:bg-slate-900">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-slate-100 dark:bg-neutral-900">
                       <div ref={equipListRef} className="bg-white p-6 text-black">
                         <div className="mb-4 border-b-2 border-slate-800 pb-3">
                           <div className="text-lg font-bold">{showInfo.production || '무제 공연'} — 조명 장비 리스트</div>
@@ -2003,8 +2112,8 @@
                         </table>
                       </div>
                     </div>
-                    <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
-                      <button onClick={() => setShowEquipList(false)} className="px-4 py-2 rounded-md text-sm font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600">닫기</button>
+                    <div className="p-4 border-t border-slate-200 dark:border-neutral-700 flex justify-end gap-2">
+                      <button onClick={() => setShowEquipList(false)} className="px-4 py-2 rounded-md text-sm font-bold bg-slate-100 dark:bg-neutral-700 text-slate-700 dark:text-neutral-200 hover:bg-slate-200 dark:hover:bg-neutral-600">닫기</button>
                       <button onClick={handleDownloadEquipListPDF} disabled={equipmentList.length === 0} className="px-4 py-2 rounded-md text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5 disabled:opacity-50"><FileText className="w-4 h-4" /> PDF 다운로드</button>
                     </div>
                   </div>
@@ -2039,7 +2148,7 @@
                       style={{
                         left: -pageSize.widthUnits / 2, top: -pageSize.heightUnits / 2,
                         width: pageSize.widthUnits, height: pageSize.heightUnits,
-                        background: isDarkMode ? '#1e293b' : '#ffffff',
+                        background: isDarkMode ? '#2d2d2d' : '#ffffff',
                         boxShadow: '0 0 0 1px rgba(100,116,139,0.4), 0 8px 24px rgba(0,0,0,0.25)',
                         zIndex: -10
                       }}
@@ -2116,18 +2225,18 @@
             </div>
 
             {/* RIGHT PANEL (Properties) */}
-            <div className={`w-52 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex-col z-10 shadow-xl overflow-hidden selection:bg-black selection:text-white ${showUI ? 'flex' : 'hidden'}`}>
-              <div className="p-4 bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-700">
+            <div className={`w-52 bg-white dark:bg-neutral-800 border-l border-slate-200 dark:border-neutral-700 flex-col z-10 shadow-xl overflow-hidden selection:bg-black selection:text-white ${showUI ? 'flex' : 'hidden'}`}>
+              <div className="p-4 bg-slate-100 dark:bg-neutral-900 border-b dark:border-neutral-700">
                 <div className="flex justify-between items-center mb-2">
                   <h2 className="text-sm font-bold flex items-center gap-2 text-black dark:text-white"><Settings2 className="w-4 h-4" /> 기구 속성</h2>
                   {selectedIds.length > 0 && <button onClick={deleteSelectedFixtures} className="p-1 text-red-500 hover:bg-red-100 rounded"><Trash2 className="w-4 h-4" /></button>}
                 </div>
                 
                 <div className="flex gap-1 mb-1 mt-3">
-                  <button onClick={handleCopy} disabled={selectedIds.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                  <button onClick={handleCopy} disabled={selectedIds.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 rounded hover:bg-slate-50 dark:hover:bg-neutral-700 disabled:opacity-30 transition-colors">
                     <Copy className="w-3 h-3" /> 복사
                   </button>
-                  <button onClick={handlePaste} disabled={clipboard.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                  <button onClick={handlePaste} disabled={clipboard.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 rounded hover:bg-slate-50 dark:hover:bg-neutral-700 disabled:opacity-30 transition-colors">
                     <ClipboardPaste className="w-3 h-3" /> 붙여넣기
                   </button>
                   <button onClick={handleDuplicate} disabled={selectedIds.length === 0} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded hover:bg-indigo-100 disabled:opacity-30 transition-colors">
@@ -2135,16 +2244,23 @@
                   </button>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={handleGroup} disabled={selectedIds.length < 2} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                  <button onClick={handleGroup} disabled={selectedIds.length < 2} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 rounded hover:bg-slate-50 dark:hover:bg-neutral-700 disabled:opacity-30 transition-colors">
                     <Link className="w-3 h-3" /> 그룹 묶기
                   </button>
-                  <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+                  <button onClick={handleUngroup} disabled={!fixtures.some(f => selectedIds.includes(f.id) && f.groupId)} className="flex-1 flex items-center justify-center gap-0.5 py-1 px-1 text-[10px] font-bold text-black dark:text-white bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 rounded hover:bg-slate-50 dark:hover:bg-neutral-700 disabled:opacity-30 transition-colors">
                     <Unlink className="w-3 h-3" /> 그룹 풀기
                   </button>
                 </div>
               </div>
 
+              <div className="flex bg-slate-100 dark:bg-neutral-900 border-b border-slate-200 dark:border-neutral-700">
+                <button onClick={() => setRightPanelTab('props')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${rightPanelTab === 'props' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-neutral-400'}`}><Settings2 className="w-3.5 h-3.5" /> 속성</button>
+                <button onClick={() => setRightPanelTab('color')} className={`flex-1 py-2 text-xs font-bold border-b-2 flex justify-center items-center gap-1 ${rightPanelTab === 'color' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 dark:text-neutral-400'}`}><Droplet className="w-3.5 h-3.5" /> 색상</button>
+              </div>
+
               <div className="p-4 flex-1 overflow-y-auto custom-scrollbar text-black dark:text-white font-bold">
+                {rightPanelTab === 'props' ? (
+                <>
                 {selectedIds.length > 1 ? (
                   <div className="space-y-4">
                     <div className="bg-indigo-50 p-3 rounded text-center"><span className="text-indigo-600 font-bold">{selectedIds.length}개</span> <span className="text-black font-bold">선택됨</span></div>
@@ -2300,6 +2416,43 @@
                     <p className="text-sm text-center">캔버스에서 객체를<br/>선택해 편집하세요.</p>
                   </div>
                 )}
+                </>
+                ) : (() => {
+                  const hasSel = selectedIds.length >= 1 && !!firstSel;
+                  const currentHex = (hasSel && /^#[0-9A-Fa-f]{6}$/.test(firstSel.color)) ? firstSel.color : '#ffffff';
+                  const { r, g, b } = hexToRgb(currentHex);
+                  const cmyk = rgbToCmyk(r, g, b);
+                  const setCmyk = (channel, value) => {
+                    const next = { ...cmyk, [channel]: value };
+                    const rgb = cmykToRgb(next.c, next.m, next.y, next.k);
+                    updateSelectedFixtures('color', rgbToHex(rgb.r, rgb.g, rgb.b));
+                  };
+                  return (
+                    <div className="space-y-4">
+                      {!hasSel && <p className="text-xs font-bold opacity-60">선택된 객체가 없습니다. 스와치 미리보기입니다.</p>}
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded border border-slate-300 dark:border-neutral-600 shadow-inner shrink-0" style={{ background: currentHex }} />
+                        <input type="text" value={currentHex} disabled={!hasSel} onChange={e => updateSelectedFixtures('color', e.target.value)} className="flex-1 w-0 border rounded p-2 text-sm bg-white dark:bg-neutral-900 text-black dark:text-white font-bold disabled:opacity-50" />
+                      </div>
+                      {[['c', 'C', cmyk.c], ['m', 'M', cmyk.m], ['y', 'Y', cmyk.y], ['k', 'K', cmyk.k]].map(([key, label, val]) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="w-4 text-xs font-bold">{label}</span>
+                          <input type="range" min="0" max="100" value={val} disabled={!hasSel} onChange={e => setCmyk(key, parseInt(e.target.value))} className="flex-1" />
+                          <span className="w-9 text-right text-xs font-mono">{val}%</span>
+                        </div>
+                      ))}
+                      <div>
+                        <label className="text-xs font-bold mb-1 block">색상환 (Hue)</label>
+                        <input
+                          type="range" min="0" max="360" disabled={!hasSel}
+                          onChange={e => updateSelectedFixtures('color', hslToHex(parseInt(e.target.value), 100, 50))}
+                          className="w-full h-4 rounded-lg appearance-none cursor-pointer disabled:opacity-50"
+                          style={{ background: 'linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red)' }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2316,12 +2469,12 @@
                 <button
                   key={key}
                   onClick={() => setNewDocSetting(s => ({ ...s, preset: key, useCustom: false }))}
-                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
+                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600'}`}
                 >
                   <div className="h-12 flex items-center justify-center">
                     <div className="bg-white border border-slate-400 shadow-sm" style={{ width: 34 * ratio, height: 34 }} />
                   </div>
-                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-slate-300'}`}>{key}</span>
+                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-neutral-300'}`}>{key}</span>
                 </button>
               );
             };
@@ -2330,30 +2483,30 @@
               return (
                 <button
                   onClick={() => setNewDocSetting(s => ({ ...s, orientation: key, useCustom: false }))}
-                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
+                  className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${isSel ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600'}`}
                 >
                   <div className="h-8 flex items-center justify-center">
                     <div className="bg-white border border-slate-400 shadow-sm" style={{ width: wide ? 30 : 20, height: wide ? 20 : 30 }} />
                   </div>
-                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-slate-300'}`}>{label}</span>
+                  <span className={`text-xs font-bold ${isSel ? 'text-indigo-600' : 'text-slate-600 dark:text-neutral-300'}`}>{label}</span>
                 </button>
               );
             };
             return (
               <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center" onPointerDown={() => setShowNewDocModal(false)}>
-                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[440px] p-6 text-black dark:text-white" onPointerDown={e => e.stopPropagation()}>
+                <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-[440px] p-6 text-black dark:text-white" onPointerDown={e => e.stopPropagation()}>
                   <div className="flex justify-between items-center mb-5">
                     <h2 className="text-base font-bold flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-indigo-500" /> 새 문서 만들기</h2>
-                    <button onClick={() => setShowNewDocModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><X className="w-4 h-4" /></button>
+                    <button onClick={() => setShowNewDocModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-neutral-700 rounded"><X className="w-4 h-4" /></button>
                   </div>
 
                   <div className="mb-4">
-                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-2">용지 크기</label>
+                    <label className="text-xs font-bold text-slate-500 dark:text-neutral-400 block mb-2">용지 크기</label>
                     <div className="flex gap-2">{['A4', 'A3'].map(presetCard)}</div>
                   </div>
 
                   <div className="mb-4">
-                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-2">방향</label>
+                    <label className="text-xs font-bold text-slate-500 dark:text-neutral-400 block mb-2">방향</label>
                     <div className="flex gap-2">
                       {orientBtn('landscape', '가로', true)}
                       {orientBtn('portrait', '세로', false)}
@@ -2361,7 +2514,7 @@
                   </div>
 
                   <div className="mb-2">
-                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-neutral-300 cursor-pointer">
                       <input type="checkbox" checked={newDocSetting.useCustom} onChange={e => setNewDocSetting(s => ({ ...s, useCustom: e.target.checked }))} className="rounded" />
                       커스텀 크기 사용 (mm)
                     </label>
@@ -2370,22 +2523,22 @@
                   {newDocSetting.useCustom && (
                     <div className="grid grid-cols-2 gap-2 mb-4">
                       <div>
-                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">가로 (mm)</label>
-                        <input type="number" min="10" value={newDocSetting.customW} onChange={e => setNewDocSetting(s => ({ ...s, customW: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 block mb-0.5">가로 (mm)</label>
+                        <input type="number" min="10" value={newDocSetting.customW} onChange={e => setNewDocSetting(s => ({ ...s, customW: e.target.value }))} className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
                       </div>
                       <div>
-                        <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">세로 (mm)</label>
-                        <input type="number" min="10" value={newDocSetting.customH} onChange={e => setNewDocSetting(s => ({ ...s, customH: e.target.value }))} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
+                        <label className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 block mb-0.5">세로 (mm)</label>
+                        <input type="number" min="10" value={newDocSetting.customH} onChange={e => setNewDocSetting(s => ({ ...s, customH: e.target.value }))} className="w-full bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-600 rounded px-2 py-1.5 text-sm outline-none focus:border-indigo-500" />
                       </div>
                     </div>
                   )}
 
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 rounded-md px-3 py-2 mb-5">
+                  <div className="text-[11px] text-slate-500 dark:text-neutral-400 bg-slate-50 dark:bg-neutral-900 rounded-md px-3 py-2 mb-5">
                     미리보기: {preview.widthMM} × {preview.heightMM} mm ({preview.label})
                   </div>
 
                   <div className="flex gap-2">
-                    <button onClick={() => setShowNewDocModal(false)} className="flex-1 py-2 rounded-md text-sm font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700">취소</button>
+                    <button onClick={() => setShowNewDocModal(false)} className="flex-1 py-2 rounded-md text-sm font-bold border border-slate-300 dark:border-neutral-600 hover:bg-slate-50 dark:hover:bg-neutral-700">취소</button>
                     <button onClick={handleCreateNewDoc} className="flex-1 py-2 rounded-md text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700">새 문서 만들기</button>
                   </div>
                 </div>
