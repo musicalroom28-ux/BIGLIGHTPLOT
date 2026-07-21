@@ -67,7 +67,8 @@
       "Bash(npx --yes playwright install chromium)",
       "Bash(pwd -W)",
       "Bash(rm -f \"C:/Users/USER/AppData/Local/Temp/package.json\" \"C:/Users/USER/AppData/Local/Temp/package-lock.json\")",
-      "Bash(rm -rf \"C:/Users/USER/AppData/Local/Temp/node_modules\")"
+      "Bash(rm -rf \"C:/Users/USER/AppData/Local/Temp/node_modules\")",
+      "Skill(claude-in-chrome)"
     ]
   }
 }
