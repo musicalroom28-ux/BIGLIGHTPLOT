@@ -71,7 +71,8 @@
         "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "three": "https://esm.sh/three@0.160.0",
-        "three/examples/jsm/controls/OrbitControls.js": "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+        "three/examples/jsm/controls/OrbitControls.js": "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js",
+        "dxf-parser": "https://esm.sh/dxf-parser@1.1.2"
       }
     }
   </script>
@@ -115,7 +116,7 @@
       Layers, Eye, EyeOff, Lock, Unlock, Edit2, Hand,
       Save, Upload, Printer, Sun, Moon, Maximize2, Copy, ClipboardPaste, Files, Shapes,
       Sparkles, Loader2, X, FileText, Image as ImageIcon, Link, Unlink, Undo, Redo, Square, Droplet,
-      Box, RotateCcw, ClipboardList
+      Box, RotateCcw, ClipboardList, FileUp
     } from 'lucide-react';
 
     // --- AI API Helper ---
@@ -537,6 +538,210 @@
       return rgbToHex(255 * f(0), 255 * f(8), 255 * f(4));
     };
 
+    // --- DXF 가져오기 유틸 ---
+    const DXF_UNIT_METERS = { mm: 0.001, cm: 0.01, m: 1, inch: 0.0254, ft: 0.3048 };
+    const guessDxfUnit = (dxf) => {
+      const code = dxf?.header?.['$INSUNITS'];
+      switch (code) {
+        case 1: return 'inch';
+        case 2: return 'ft';
+        case 4: return 'mm';
+        case 5: return 'cm';
+        case 6: return 'm';
+        default: return 'mm';
+      }
+    };
+
+    // 세 점을 지나는 원의 중심 (외심) 계산
+    const dxfCircumcenter = (p0, p1, p2) => {
+      const ax = p0.x, ay = p0.y, bx = p1.x, by = p1.y, cx = p2.x, cy = p2.y;
+      const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+      if (Math.abs(d) < 1e-9) return null;
+      const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
+      const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
+      return { x: ux, y: uy };
+    };
+
+    // ARC 엔티티(중심/반지름/시작각/끝각, 반시계방향)를 직선 근사 점 목록으로 변환 (양끝 포함)
+    const dxfArcToPoints = (center, r, startAngle, endAngle, maxSeg = 48) => {
+      const norm = (a) => { let v = a % (Math.PI * 2); if (v < 0) v += Math.PI * 2; return v; };
+      const a0 = norm(startAngle || 0);
+      let a1 = norm(endAngle || 0);
+      if (a1 <= a0) a1 += Math.PI * 2;
+      const span = a1 - a0;
+      const segs = Math.max(3, Math.min(maxSeg, Math.ceil(span / (Math.PI / 16))));
+      const pts = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = a0 + (span * i) / segs;
+        pts.push({ x: center.x + r * Math.cos(a), y: center.y + r * Math.sin(a) });
+      }
+      return pts;
+    };
+
+    // 폴리라인의 bulge(휨값) 구간을 직선 근사 점 목록으로 변환 (시작점 제외, 끝점 포함)
+    const dxfBulgeToPoints = (p0, p1, bulge, maxSeg = 32) => {
+      const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      if (!bulge || dist < 1e-9) return [p1];
+      const sagitta = bulge * dist / 2; // sagitta = tan(theta/4) * chord/2 항등식
+      const mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
+      const ux = (p1.x - p0.x) / dist, uy = (p1.y - p0.y) / dist;
+      const perpX = -uy, perpY = ux;
+      const arcMid = { x: mx + perpX * sagitta, y: my + perpY * sagitta };
+      const center = dxfCircumcenter(p0, arcMid, p1);
+      if (!center) return [p1];
+      const r = Math.hypot(p0.x - center.x, p0.y - center.y);
+      const norm = (a) => { let v = a % (Math.PI * 2); if (v < 0) v += Math.PI * 2; return v; };
+      const n0 = norm(Math.atan2(p0.y - center.y, p0.x - center.x));
+      const n1 = norm(Math.atan2(p1.y - center.y, p1.x - center.x));
+      const nm = norm(Math.atan2(arcMid.y - center.y, arcMid.x - center.x));
+      const spanCcw = norm(n1 - n0) || Math.PI * 2;
+      const midOffsetCcw = norm(nm - n0);
+      const goCcw = midOffsetCcw <= spanCcw;
+      const sweep = goCcw ? spanCcw : -(Math.PI * 2 - spanCcw);
+      const segs = Math.max(2, Math.min(maxSeg, Math.ceil(Math.abs(sweep) / (Math.PI / 16))));
+      const pts = [];
+      for (let i = 1; i <= segs; i++) {
+        const a = n0 + (sweep * i) / segs;
+        pts.push({ x: center.x + r * Math.cos(a), y: center.y + r * Math.sin(a) });
+      }
+      return pts;
+    };
+
+    // INSERT(블록 삽입)를 재귀적으로 펼쳐서 실제 도형 엔티티 목록으로 변환
+    const flattenDxfEntities = (entities, blocks, transformFn, depth, out) => {
+      if (depth > 6 || !entities) return;
+      for (const ent of entities) {
+        try {
+          if (ent.type === 'INSERT') {
+            const block = blocks && blocks[ent.name];
+            if (!block || !block.entities) continue;
+            const base = block.position || block.basePoint || { x: 0, y: 0 };
+            const ins = ent.position || { x: 0, y: 0 };
+            const rotRad = ((ent.rotation || 0) * Math.PI) / 180;
+            const sx = ent.xScale != null ? ent.xScale : 1;
+            const sy = ent.yScale != null ? ent.yScale : 1;
+            const cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
+            const colCount = Math.max(1, ent.columnCount || 1);
+            const rowCount = Math.max(1, ent.rowCount || 1);
+            const colSpacing = ent.columnSpacing || 0;
+            const rowSpacing = ent.rowSpacing || 0;
+            for (let col = 0; col < colCount; col++) {
+              for (let row = 0; row < rowCount; row++) {
+                const insertFn = (p) => {
+                  const lx = (p.x - base.x) * sx, ly = (p.y - base.y) * sy;
+                  return {
+                    x: ins.x + col * colSpacing + (lx * cosR - ly * sinR),
+                    y: ins.y + row * rowSpacing + (lx * sinR + ly * cosR)
+                  };
+                };
+                const composed = (p) => transformFn(insertFn(p));
+                flattenDxfEntities(block.entities, blocks, composed, depth + 1, out);
+              }
+            }
+          } else {
+            out.push({ entity: ent, transform: transformFn });
+          }
+        } catch (err) { /* 개별 엔티티 오류는 건너뜀 */ }
+      }
+    };
+
+    // 펼쳐진 DXF 엔티티 목록을 도면 캔버스 상의 편집 가능한 도형(fixture)으로 변환
+    const buildFixturesFromDxf = (flatList, metersPerUnit, layerId, maxFixtures) => {
+      const toCanvas = (p, transform) => {
+        const tp = transform(p);
+        return { x: tp.x * metersPerUnit * 50, y: -tp.y * metersPerUnit * 50 };
+      };
+      const fixtures = [];
+      let idCounter = 0;
+      let skipped = 0;
+      const nextId = () => `dxf_${Date.now()}_${idCounter++}`;
+
+      const pushLine = (p0, p1) => {
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.01) return;
+        const rotation = Math.atan2(dy, dx) * 180 / Math.PI;
+        fixtures.push({
+          id: nextId(), type: 'LINE', name: '선 (DXF)',
+          x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2,
+          rotation, width: len, height: 20, thickness: 1.5,
+          scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId
+        });
+      };
+      const pushChain = (points) => { for (let i = 0; i < points.length - 1; i++) pushLine(points[i], points[i + 1]); };
+
+      for (const { entity: ent, transform } of flatList) {
+        if (fixtures.length >= maxFixtures) { skipped++; continue; }
+        try {
+          switch (ent.type) {
+            case 'LINE': {
+              const v = ent.vertices || [ent.start, ent.end];
+              if (!v || v.length < 2 || !v[0] || !v[1]) { skipped++; break; }
+              pushLine(toCanvas(v[0], transform), toCanvas(v[1], transform));
+              break;
+            }
+            case 'POINT': {
+              if (!ent.position) { skipped++; break; }
+              const p = toCanvas(ent.position, transform);
+              fixtures.push({ id: nextId(), type: 'CIRCLE', name: '점 (DXF)', x: p.x, y: p.y, rotation: 0, width: 4, height: 4, thickness: 1.5, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId });
+              break;
+            }
+            case 'CIRCLE': {
+              if (!ent.center || !(ent.radius > 0)) { skipped++; break; }
+              const c = toCanvas(ent.center, transform);
+              // INSERT 블록의 배율(scale)까지 반영하기 위해 실제 변환된 반지름 점과의 거리로 계산
+              const edge = toCanvas({ x: ent.center.x + ent.radius, y: ent.center.y }, transform);
+              const r = Math.hypot(edge.x - c.x, edge.y - c.y);
+              fixtures.push({ id: nextId(), type: 'CIRCLE', name: '원 (DXF)', x: c.x, y: c.y, rotation: 0, width: r * 2, height: r * 2, thickness: 1.5, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId });
+              break;
+            }
+            case 'ARC': {
+              if (!ent.center || !(ent.radius > 0)) { skipped++; break; }
+              const rawPts = dxfArcToPoints(ent.center, ent.radius, ent.startAngle, ent.endAngle);
+              pushChain(rawPts.map(p => toCanvas(p, transform)));
+              break;
+            }
+            case 'LWPOLYLINE':
+            case 'POLYLINE': {
+              const verts = ent.vertices || [];
+              if (verts.length < 2) { skipped++; break; }
+              const raw = [{ x: verts[0].x, y: verts[0].y }];
+              for (let i = 0; i < verts.length - 1; i++) {
+                const a = verts[i], b = verts[i + 1];
+                if (a.bulge) raw.push(...dxfBulgeToPoints({ x: a.x, y: a.y }, { x: b.x, y: b.y }, a.bulge));
+                else raw.push({ x: b.x, y: b.y });
+              }
+              const closed = !!(ent.shape || ent.closed);
+              if (closed) {
+                const last = verts[verts.length - 1], first = verts[0];
+                if (last.bulge) raw.push(...dxfBulgeToPoints({ x: last.x, y: last.y }, { x: first.x, y: first.y }, last.bulge));
+                else raw.push({ x: first.x, y: first.y });
+              }
+              pushChain(raw.map(p => toCanvas(p, transform)));
+              break;
+            }
+            case 'TEXT':
+            case 'MTEXT': {
+              const pos = ent.startPoint || ent.position || ent.insertionPoint;
+              if (!pos) { skipped++; break; }
+              let text = (ent.text || '').toString().replace(/\\P/gi, '\n').replace(/\{|\}/g, '').replace(/\\[A-Za-z][^;]*;/g, '');
+              if (!text.trim()) { skipped++; break; }
+              const p = toCanvas(pos, transform);
+              fixtures.push({
+                id: nextId(), type: 'TEXT', name: '텍스트 (DXF)', x: p.x, y: p.y, rotation: ent.rotation || 0,
+                width: Math.max(200, text.length * 16), height: 50, thickness: 1, scale: 1, opacity: 1,
+                bgColor: '', dash: '', rx: 0, layerId, text
+              });
+              break;
+            }
+            default:
+              skipped++;
+          }
+        } catch (err) { skipped++; }
+      }
+      return { fixtures, skipped };
+    };
+
     const add3DFixture = (THREE, parentGroup, f, showBeams, selected) => {
       const tInfo = FIXTURE_TYPES[f.type];
       if (!tInfo) return;
@@ -932,6 +1137,7 @@
       const fileInputRef = useRef(null); 
       const imageInputRef = useRef(null);
       const symbolInputRef = useRef(null);
+      const dxfInputRef = useRef(null);
       const [toastMsg, setToastMsg] = useState(''); 
 
       const [aiThemeInput, setAiThemeInput] = useState('');
@@ -1159,6 +1365,12 @@
         const file = e.target.files[0];
         if (!file) return;
 
+        const ext = file.name.split('.').pop().toLowerCase();
+        const isAi = ext === 'ai';
+        // AI(어도비 일러스트레이터) 파일은 "PDF 호환 파일 만들기" 옵션으로 저장 시 내부에 완전한 PDF가
+        // 포함되므로, 이미 로드된 pdf.js로 동일하게 열어 첫 페이지를 래스터화한다.
+        const isPdfLike = file.type === 'application/pdf' || ext === 'pdf' || isAi;
+
         const processImage = (dataUrl) => {
           const img = new window.Image();
           img.onload = () => {
@@ -1173,23 +1385,23 @@
             let canvasY = (rect.height / 2 - view.y) / view.zoom;
             if (snapToGrid) { canvasX = Math.round(canvasX / 5) * 5; canvasY = Math.round(canvasY / 5) * 5; }
 
-            const newFixture = { id: `fix_${Date.now()}`, type: 'IMAGE', name: file.type === 'application/pdf' ? 'PDF 도면' : '이미지', x: canvasX, y: canvasY, rotation: 0, width: initW, height: initH, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId: activeLayerId, src: dataUrl };
+            const newFixture = { id: `fix_${Date.now()}`, type: 'IMAGE', name: isAi ? 'AI 도면' : (file.type === 'application/pdf' || ext === 'pdf') ? 'PDF 도면' : '이미지', x: canvasX, y: canvasY, rotation: 0, width: initW, height: initH, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId: activeLayerId, src: dataUrl };
             const newF = [...fixtures, newFixture];
             setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([newFixture.id]);
-            showToast(file.type === 'application/pdf' ? "PDF 도면이 추가되었습니다." : "이미지가 추가되었습니다.");
+            showToast(isAi ? "AI 도면이 추가되었습니다." : (file.type === 'application/pdf' || ext === 'pdf') ? "PDF 도면이 추가되었습니다." : "이미지가 추가되었습니다.");
           };
           img.src = dataUrl;
         };
 
-        if (file.type === 'application/pdf') {
-          showToast("PDF를 변환 중입니다. 잠시만 기다려주세요...");
+        if (isPdfLike) {
+          showToast(isAi ? "AI 파일을 변환 중입니다. 잠시만 기다려주세요..." : "PDF를 변환 중입니다. 잠시만 기다려주세요...");
           try {
             const arrayBuffer = await file.arrayBuffer();
             const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
             if (!pdfjsLib) throw new Error("PDF.js 라이브러리가 로드되지 않았습니다.");
-            
+
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-            
+
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             const page = await pdf.getPage(1); // 1페이지 추출
             const viewport = page.getViewport({ scale: 2.0 }); // 고해상도 변환
@@ -1197,19 +1409,19 @@
             const context = canvas.getContext('2d');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
-            
+
             await page.render({ canvasContext: context, viewport: viewport }).promise;
             processImage(canvas.toDataURL('image/png'));
           } catch (err) {
             console.error(err);
-            showToast("PDF 변환 중 오류가 발생했습니다.");
+            showToast(isAi ? "AI 파일 변환 실패. '내보내기 시 PDF 호환 파일 만들기' 옵션으로 저장된 파일만 지원됩니다." : "PDF 변환 중 오류가 발생했습니다.");
           }
         } else {
           const reader = new FileReader();
           reader.onload = (event) => processImage(event.target.result);
           reader.readAsDataURL(file);
         }
-        e.target.value = null; 
+        e.target.value = null;
       };
 
       const handleSymbolUpload = async (e) => {
@@ -1217,10 +1429,11 @@
         if (!file) return;
 
         const ext = file.name.split('.').pop().toLowerCase();
-        
-        // AI, CAD 등 브라우저 미지원 포맷 안내
-        if (['dwg', 'dxf', 'ai'].includes(ext) && file.type !== 'application/pdf') {
-          showToast("CAD(dwg/dxf) 및 AI 원본은 직접 지원되지 않습니다. PDF, SVG 또는 이미지로 저장하여 추가해 주세요.");
+        const isAi = ext === 'ai';
+
+        // CAD 등 브라우저 미지원 포맷 안내 (DXF 전체 도면은 상단 메뉴의 'DXF 도면 불러오기'를 이용)
+        if (['dwg', 'dxf'].includes(ext)) {
+          showToast(ext === 'dxf' ? "심볼 등록에는 DXF가 지원되지 않습니다. 상단 '파일' 메뉴의 'DXF 도면 불러오기'를 이용해 주세요." : "CAD(dwg) 원본은 직접 지원되지 않습니다. PDF, SVG 또는 이미지로 저장하여 추가해 주세요.");
           e.target.value = null;
           return;
         }
@@ -1228,8 +1441,9 @@
         // 파일 확장자를 제외한 이름을 심볼 이름으로 사용
         const symbolName = file.name.replace(/\.[^/.]+$/, "");
 
-        if (file.type === 'application/pdf' || ext === 'pdf') {
-          showToast("PDF 심볼을 변환 중입니다...");
+        // AI 파일은 "PDF 호환 파일 만들기" 옵션으로 저장된 경우 내부에 PDF가 포함되어 있어 동일하게 처리 가능
+        if (file.type === 'application/pdf' || ext === 'pdf' || isAi) {
+          showToast(isAi ? "AI 심볼을 변환 중입니다..." : "PDF 심볼을 변환 중입니다...");
           try {
             const arrayBuffer = await file.arrayBuffer();
             const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
@@ -1249,10 +1463,10 @@
             
             const newSymbol = { id: `csym_${Date.now()}`, name: symbolName, src: canvas.toDataURL('image/png') };
             setCustomSymbols(prev => [...prev, newSymbol]);
-            showToast("PDF 심볼 추가됨");
+            showToast(isAi ? "AI 심볼 추가됨" : "PDF 심볼 추가됨");
           } catch (err) {
             console.error(err);
-            showToast("PDF 변환 중 오류가 발생했습니다.");
+            showToast(isAi ? "AI 파일 변환 실패. 'PDF 호환 파일 만들기' 옵션으로 저장된 파일만 지원됩니다." : "PDF 변환 중 오류가 발생했습니다.");
           }
         } else {
           const reader = new FileReader();
@@ -1264,6 +1478,60 @@
           reader.readAsDataURL(file);
         }
         e.target.value = null;
+      };
+
+      const handleDxfUpload = async (e) => {
+        const file = e.target.files[0];
+        e.target.value = null;
+        if (!file) return;
+
+        try {
+          showToast("DXF 파일을 분석 중입니다...");
+          const text = await file.text();
+          const { default: DxfParser } = await import('dxf-parser');
+          const parser = new DxfParser();
+          const dxf = parser.parseSync(text);
+          if (!dxf || !dxf.entities) { showToast("DXF 파일을 해석할 수 없습니다."); return; }
+
+          const guessed = guessDxfUnit(dxf);
+          const input = window.prompt(`DXF 도면의 단위를 입력하세요 (mm / cm / m / inch / ft)\n자동 감지된 단위: ${guessed}`, guessed);
+          if (input === null) { showToast("DXF 가져오기가 취소되었습니다."); return; }
+          const unitKey = (input || guessed).trim().toLowerCase();
+          const metersPerUnit = DXF_UNIT_METERS[unitKey] || DXF_UNIT_METERS[guessed] || 0.001;
+
+          const flat = [];
+          flattenDxfEntities(dxf.entities, dxf.blocks, (p) => p, 0, flat);
+          if (flat.length === 0) { showToast("가져올 도형이 없습니다."); return; }
+
+          const { fixtures: rawFixtures, skipped } = buildFixturesFromDxf(flat, metersPerUnit, activeLayerId, 4000);
+          if (rawFixtures.length === 0) { showToast(`가져올 수 있는 도형이 없습니다. (${skipped}개 항목 미지원)`); return; }
+
+          // 도면 전체의 중심을 현재 화면 중앙으로 이동
+          const xs = rawFixtures.map(f => f.x), ys = rawFixtures.map(f => f.y);
+          const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+          const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+          const rect = containerRef.current.getBoundingClientRect();
+          const targetX = (rect.width / 2 - view.x) / view.zoom;
+          const targetY = (rect.height / 2 - view.y) / view.zoom;
+          const shiftX = targetX - centerX, shiftY = targetY - centerY;
+          rawFixtures.forEach(f => { f.x += shiftX; f.y += shiftY; });
+
+          const newLayerId = `layer_dxf_${Date.now()}`;
+          const newLayerName = `DXF: ${file.name.replace(/\.[^/.]+$/, "")}`;
+          setLayers(prev => [{ id: newLayerId, name: newLayerName, visible: true, locked: false }, ...prev]);
+          setActiveLayerId(newLayerId);
+          rawFixtures.forEach(f => { f.layerId = newLayerId; });
+
+          const newF = [...fixtures, ...rawFixtures];
+          setFixtures(newF);
+          pushHistoryImmediate(newF);
+          setSelectedIds(rawFixtures.map(f => f.id));
+
+          showToast(`DXF에서 ${rawFixtures.length}개 도형을 가져왔습니다.${skipped ? ` (${skipped}개 항목 미지원으로 제외)` : ''}`);
+        } catch (err) {
+          console.error(err);
+          showToast("DXF 가져오기 중 오류가 발생했습니다.");
+        }
       };
 
       const handleAiThemeSetting = async () => {
@@ -1804,7 +2072,8 @@
           { label: '새 문서...', icon: LayoutTemplate, onClick: () => setShowNewDocModal(true) },
           { label: '저장', icon: Save, onClick: handleSaveData },
           { label: '불러오기...', icon: Upload, onClick: () => fileInputRef.current.click() },
-          { label: '이미지/PDF 도면 추가...', icon: ImageIcon, onClick: () => imageInputRef.current.click(), disabled: is3DView },
+          { label: '이미지/PDF/AI 도면 추가...', icon: ImageIcon, onClick: () => imageInputRef.current.click(), disabled: is3DView },
+          { label: 'DXF 도면 불러오기...', icon: FileUp, onClick: () => dxfInputRef.current.click(), disabled: is3DView },
           { label: 'PDF로 내보내기...', icon: Printer, onClick: () => { setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요"); }, disabled: is3DView },
         ]},
         { key: 'edit', label: '편집(E)', items: [
@@ -2016,7 +2285,8 @@
                 )}
 
                 <input type="file" accept=".json" ref={fileInputRef} onChange={handleLoadData} className="hidden" />
-                <input type="file" accept="image/*, application/pdf" ref={imageInputRef} onChange={handleImageUpload} className="hidden" />
+                <input type="file" accept="image/*, application/pdf, .ai" ref={imageInputRef} onChange={handleImageUpload} className="hidden" />
+                <input type="file" accept=".dxf" ref={dxfInputRef} onChange={handleDxfUpload} className="hidden" />
                 <input type="file" accept="image/*, .svg, application/pdf, .ai, .dwg, .dxf" ref={symbolInputRef} onChange={handleSymbolUpload} className="hidden" />
               </div>
 
