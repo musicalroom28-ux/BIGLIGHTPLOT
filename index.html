@@ -116,7 +116,7 @@
       Layers, Eye, EyeOff, Lock, Unlock, Edit2, Hand,
       Save, Upload, Printer, Sun, Moon, Maximize2, Copy, ClipboardPaste, Files, Shapes,
       Sparkles, Loader2, X, FileText, Image as ImageIcon, Link, Unlink, Undo, Redo, Square, Droplet,
-      Box, RotateCcw, ClipboardList, FileUp
+      Box, RotateCcw, ClipboardList, FileUp, ChevronUp, ChevronDown
     } from 'lucide-react';
 
     // --- AI API Helper ---
@@ -1081,6 +1081,42 @@
       );
     });
 
+    const NumberStepper = ({ value, min, max, step = 1, unit = '', disabled = false, onChange, className = '' }) => {
+      const clamp = (n) => {
+        if (isNaN(n)) n = min != null ? min : 0;
+        if (min != null) n = Math.max(min, n);
+        if (max != null) n = Math.min(max, n);
+        return Math.round(n * 1000) / 1000;
+      };
+      const bump = (dir) => {
+        if (disabled) return;
+        onChange(clamp((parseFloat(value) || 0) + dir * step));
+      };
+      return (
+        <div className={`flex items-stretch border rounded bg-white dark:bg-neutral-900 dark:border-neutral-600 ${disabled ? 'opacity-50' : ''} ${className}`}>
+          <input
+            type="number"
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            disabled={disabled}
+            onChange={e => onChange(clamp(parseFloat(e.target.value)))}
+            className="flex-1 w-0 px-2 py-1 text-xs text-right outline-none bg-transparent text-black dark:text-white font-bold"
+          />
+          {unit && <span className="flex items-center text-[10px] text-black dark:text-white font-bold pr-1">{unit}</span>}
+          <div className="flex flex-col border-l dark:border-neutral-600">
+            <button type="button" disabled={disabled} onClick={() => bump(1)} tabIndex={-1} className="px-1 h-1/2 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-neutral-700 disabled:cursor-not-allowed">
+              <ChevronUp className="w-3 h-3" />
+            </button>
+            <button type="button" disabled={disabled} onClick={() => bump(-1)} tabIndex={-1} className="px-1 h-1/2 flex items-center justify-center border-t dark:border-neutral-600 hover:bg-slate-100 dark:hover:bg-neutral-700 disabled:cursor-not-allowed">
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      );
+    };
+
     export default function App() {
       const [fixtures, setFixtures] = useState([]);
       const [selectedIds, setSelectedIds] = useState([]);
@@ -1116,8 +1152,13 @@
       
       const [dragInfo, setDragInfo] = useState(null);
       const [pdfExportMode, setPdfExportMode] = useState(false);
+      const [exportAction, setExportAction] = useState('pdf'); // 'pdf' | 'print'
       const [exportBox, setExportBox] = useState(null);
       const [clipboard, setClipboard] = useState([]);
+      const [bulkOpacity, setBulkOpacity] = useState(1);
+      const [bulkThickness, setBulkThickness] = useState(2);
+      const [bulkZHeight, setBulkZHeight] = useState(RIG_HEIGHT);
+      const [bulkRx, setBulkRx] = useState(0);
       const [showEquipList, setShowEquipList] = useState(false);
       const equipListRef = useRef(null);
 
@@ -1631,6 +1672,56 @@
         } catch (error) { showToast("PDF 오류 발생"); }
       };
 
+      // PDF로 저장하지 않고 곧바로 프린터로 보내는 실제 인쇄 기능.
+      // 별도의 iframe 문서에 캡처 이미지를 넣어 인쇄해, 본문(body)에 걸린
+      // 인쇄 방지용 @media print 규칙(불법 복제 방지)의 영향을 받지 않는다.
+      const handlePrintCapture = async (box) => {
+        showToast("인쇄를 준비 중입니다...");
+        try {
+          setSelectedIds([]);
+          const canvasElement = containerRef.current;
+          const scale = 3;
+          const fullCanvas = await window.html2canvas(canvasElement, { backgroundColor: themeVars.bg, scale: scale, useCORS: true });
+
+          const boxX = Math.min(box.startX, box.currX), boxY = Math.min(box.startY, box.currY);
+          const boxWidth = Math.abs(box.currX - box.startX), boxHeight = Math.abs(box.currY - box.startY);
+          const croppedCanvas = document.createElement('canvas');
+          croppedCanvas.width = boxWidth * scale; croppedCanvas.height = boxHeight * scale;
+          croppedCanvas.getContext('2d').drawImage(fullCanvas, boxX * scale, boxY * scale, boxWidth * scale, boxHeight * scale, 0, 0, boxWidth * scale, boxHeight * scale);
+
+          const footerCanvas = buildShowInfoFooterCanvas(boxWidth, 40);
+          const imageDataUrl = croppedCanvas.toDataURL('image/png');
+          const footerDataUrl = footerCanvas.toDataURL('image/png');
+          const orientation = boxWidth > boxHeight ? 'landscape' : 'portrait';
+
+          const iframe = document.createElement('iframe');
+          iframe.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+          document.body.appendChild(iframe);
+          const doc = iframe.contentWindow.document;
+          doc.open();
+          doc.write(`<!DOCTYPE html><html><head><title>BIGLIGHT PLOT 인쇄</title>
+            <style>
+              @page { size: ${orientation}; margin: 8mm; }
+              html, body { margin: 0; padding: 0; }
+              img { width: 100%; display: block; }
+              .footer { margin-top: 4mm; }
+            </style></head>
+            <body>
+              <img src="${imageDataUrl}" />
+              <img class="footer" src="${footerDataUrl}" />
+            </body></html>`);
+          doc.close();
+
+          const cleanup = () => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); };
+          iframe.contentWindow.onafterprint = cleanup;
+          setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            setTimeout(cleanup, 60000); // 인쇄 대화상자를 닫지 않는 경우를 대비한 안전장치
+          }, 250);
+        } catch (error) { showToast("인쇄 준비 중 오류 발생"); }
+      };
+
       const handleCopy = useCallback(() => {
         if (selectedIds.length === 0) return;
         const toCopy = fixtures.filter(f => selectedIds.includes(f.id));
@@ -1742,6 +1833,8 @@
         const tInfo = FIXTURE_TYPES[typeKey];
         const isVenue = tInfo.category === 'venue';
         const isShape = tInfo.category === 'shape';
+        const isStructure = tInfo.category === 'structure';
+        const isFixture = tInfo.category === 'fixture';
         const isMemo = tInfo.category === 'memo';
         const isImg = tInfo.category === 'image';
 
@@ -1756,7 +1849,8 @@
           name: symName, x: newX, y: newY, rotation: 0,
           width: isVenue ? 500 : ((isShape || isMemo || isImg) ? 150 : 300),
           height: isVenue ? 400 : ((isShape || isImg) ? 100 : (isMemo ? 50 : undefined)),
-          thickness: (isShape || isVenue) ? 2 : undefined, scale: 1, opacity: 1, bgColor: '', dash: '', rx: 0, layerId: activeLayerId, src: symSrc
+          thickness: isShape ? 2 : (isVenue || isStructure || isFixture) ? 1 : undefined, scale: 1, opacity: 1,
+          color: isFixture ? '#000000' : undefined, bgColor: isFixture ? '#ffffff' : '', dash: '', rx: 0, layerId: activeLayerId, src: symSrc
         }];
         setFixtures(newF); pushHistoryImmediate(newF); setSelectedIds([newF[newF.length-1].id]);
         setPlacingFixture(null); setHoverPos(null);
@@ -1925,9 +2019,9 @@
       const handlePointerUp = () => {
         flushPendingMove();
         if (pdfExportMode && exportBox) {
-          const box = { ...exportBox }; setExportBox(null); setPdfExportMode(false);
+          const box = { ...exportBox }; const action = exportAction; setExportBox(null); setPdfExportMode(false);
           if (Math.abs(box.currX - box.startX) < 50) { showToast("영역이 너무 작습니다."); return; }
-          setTimeout(() => generatePDF(box), 100); return;
+          setTimeout(() => action === 'print' ? handlePrintCapture(box) : generatePDF(box), 100); return;
         }
         if (isDraggingRef.current) { pushHistoryImmediate(fixtures); isDraggingRef.current = false; }
         setIsPanning(false); setDragInfo(null); setSelectionBox(null);
@@ -2074,7 +2168,8 @@
           { label: '불러오기...', icon: Upload, onClick: () => fileInputRef.current.click() },
           { label: '이미지/PDF/AI 도면 추가...', icon: ImageIcon, onClick: () => imageInputRef.current.click(), disabled: is3DView },
           { label: 'DXF 도면 불러오기...', icon: FileUp, onClick: () => dxfInputRef.current.click(), disabled: is3DView },
-          { label: 'PDF로 내보내기...', icon: Printer, onClick: () => { setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요"); }, disabled: is3DView },
+          { label: 'PDF로 내보내기...', icon: FileText, onClick: () => { setExportAction('pdf'); setPdfExportMode(true); showToast("PDF 내보낼 영역을 드래그하세요"); }, disabled: is3DView },
+          { label: '인쇄...', icon: Printer, onClick: () => { setExportAction('print'); setPdfExportMode(true); showToast("인쇄할 영역을 드래그하세요"); }, disabled: is3DView },
         ]},
         { key: 'edit', label: '편집(E)', items: [
           { label: '실행 취소', icon: Undo, onClick: undo },
@@ -2408,7 +2503,7 @@
                 style={{ backgroundImage: `linear-gradient(to right, ${themeVars.grid} 1px, transparent 1px), linear-gradient(to bottom, ${themeVars.grid} 1px, transparent 1px)`, backgroundSize: `${50*view.zoom}px ${50*view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
               >
                 {selectionBox && !pdfExportMode && <div className="absolute border border-indigo-400 bg-indigo-500/20 pointer-events-none z-40" style={{ left: Math.min(selectionBox.startX, selectionBox.currX), top: Math.min(selectionBox.startY, selectionBox.currY), width: Math.abs(selectionBox.currX - selectionBox.startX), height: Math.abs(selectionBox.currY - selectionBox.startY) }} />}
-                {pdfExportMode && exportBox && <div className="absolute border-2 border-emerald-400 bg-emerald-500/10 border-dashed pointer-events-none z-40" style={{ left: Math.min(exportBox.startX, exportBox.currX), top: Math.min(exportBox.startY, exportBox.currY), width: Math.abs(exportBox.currX - exportBox.startX), height: Math.abs(exportBox.currY - exportBox.startY) }}><div className="absolute top-2 left-2 bg-emerald-500 text-white text-[10px] px-1 py-0.5 rounded font-bold">A4 비율</div></div>}
+                {pdfExportMode && exportBox && <div className="absolute border-2 border-emerald-400 bg-emerald-500/10 border-dashed pointer-events-none z-40" style={{ left: Math.min(exportBox.startX, exportBox.currX), top: Math.min(exportBox.startY, exportBox.currY), width: Math.abs(exportBox.currX - exportBox.startX), height: Math.abs(exportBox.currY - exportBox.startY) }}><div className="absolute top-2 left-2 bg-emerald-500 text-white text-[10px] px-1 py-0.5 rounded font-bold">A4 비율 · {exportAction === 'print' ? '인쇄 영역' : 'PDF 영역'}</div></div>}
 
                 <div className="absolute inset-0 pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
 
@@ -2542,9 +2637,9 @@
                     <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 배경색 (BgColor)</label>
                       <div className="flex gap-1"><input type="color" onChange={e=>updateSelectedFixtures('bgColor', e.target.value)} className="w-9 h-9 p-0.5" /><button onClick={()=>updateSelectedFixtures('bgColor', '')} className="flex-1 border rounded text-xs bg-white text-black font-bold">투명 적용</button></div>
                     </div>
-                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 투명도 (Opacity)</label><input type="range" min="0.1" max="1" step="0.1" onChange={e=>updateSelectedFixtures('opacity', parseFloat(e.target.value))} className="w-full" /></div>
-                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 외곽선 굵기 (Thickness)</label><input type="range" min="0.5" max="20" step="0.5" onChange={e=>updateSelectedFixtures('thickness', parseFloat(e.target.value))} className="w-full" /></div>
-                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 설치 높이 (3D, Height)</label><input type="range" min="0" max="15" step="0.1" onChange={e=>updateSelectedFixtures('zHeight', parseFloat(e.target.value))} className="w-full" /></div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 투명도 (Opacity)</label><NumberStepper value={bulkOpacity} min={0.1} max={1} step={0.1} onChange={v=>{setBulkOpacity(v); updateSelectedFixtures('opacity', v);}} className="w-full" /></div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 외곽선 굵기 (Thickness)</label><NumberStepper value={bulkThickness} min={0.5} max={20} step={0.5} unit="px" onChange={v=>{setBulkThickness(v); updateSelectedFixtures('thickness', v);}} className="w-full" /></div>
+                    <div><label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 설치 높이 (3D, Height)</label><NumberStepper value={bulkZHeight} min={0} max={15} step={0.1} unit="m" onChange={v=>{setBulkZHeight(v); updateSelectedFixtures('zHeight', v);}} className="w-full" /></div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -2559,7 +2654,7 @@
                       </div>
                       <div>
                         <label className="text-xs font-bold text-black dark:text-white mb-1 block">일괄 모서리 둥글기</label>
-                        <input type="range" min="0" max="100" step="1" onChange={e=>updateSelectedFixtures('rx', parseFloat(e.target.value))} className="w-full" />
+                        <NumberStepper value={bulkRx} min={0} max={100} step={1} unit="px" onChange={v=>{setBulkRx(v); updateSelectedFixtures('rx', v);}} className="w-full" />
                       </div>
                     </div>
 
@@ -2607,26 +2702,20 @@
                       <>
                         <div>
                           <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>가로/길이 (Width)</span></label>
-                          <div className="flex gap-2">
-                            <input type="range" min="0.5" max="40" step={snapToGrid?"1":"0.1"} value={firstSel.width/50} onChange={e=>updateSelectedFixtures('width', parseFloat(e.target.value)*50)} className="flex-1" />
-                            <div className="flex items-center border rounded px-1 w-16 bg-white"><input type="number" value={Number((firstSel.width/50).toFixed(1))} onChange={e=>updateSelectedFixtures('width', parseFloat(e.target.value)*50)} className="w-full text-xs text-right outline-none text-black font-bold" /><span className="text-[10px] text-black font-bold">m</span></div>
-                          </div>
+                          <NumberStepper value={Number((firstSel.width/50).toFixed(1))} min={0.5} max={40} step={snapToGrid?1:0.1} unit="m" onChange={v=>updateSelectedFixtures('width', v*50)} className="w-full" />
                         </div>
                         {['STAGE_PROSCENIUM', 'STAGE_THRUST', 'STAGE_ARENA', 'STAGE_BLACKBOX', 'RECTANGLE', 'CIRCLE', 'CURVE', 'LABEL', 'IMAGE'].includes(firstSel.type) && (
                           <div>
                             <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>세로 (Height)</span></label>
-                            <div className="flex gap-2">
-                              <input type="range" min="0.5" max="40" step={snapToGrid?"1":"0.1"} value={(firstSel.height||100)/50} onChange={e=>updateSelectedFixtures('height', parseFloat(e.target.value)*50)} className="flex-1" />
-                              <div className="flex items-center border rounded px-1 w-16 bg-white"><input type="number" value={Number(((firstSel.height||100)/50).toFixed(1))} onChange={e=>updateSelectedFixtures('height', parseFloat(e.target.value)*50)} className="w-full text-xs text-right outline-none text-black font-bold" /><span className="text-[10px] text-black font-bold">m</span></div>
-                            </div>
+                            <NumberStepper value={Number(((firstSel.height||100)/50).toFixed(1))} min={0.5} max={40} step={snapToGrid?1:0.1} unit="m" onChange={v=>updateSelectedFixtures('height', v*50)} className="w-full" />
                           </div>
                         )}
                       </>
                     )}
 
                     <div>
-                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>비율 크기 (Scale)</span><span>{(firstSel.scale||1).toFixed(1)}x</span></label>
-                      <input type="range" min="0.1" max="10" step="0.1" value={firstSel.scale||1} onChange={e=>updateSelectedFixtures('scale', parseFloat(e.target.value))} className="w-full" />
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>비율 크기 (Scale)</span></label>
+                      <NumberStepper value={firstSel.scale||1} min={0.1} max={10} step={0.1} unit="x" onChange={v=>updateSelectedFixtures('scale', v)} className="w-full" />
                     </div>
 
                     <div className="flex gap-2">
@@ -2635,13 +2724,13 @@
                     </div>
 
                     <div>
-                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>투명도 (Opacity)</span><span>{Math.round((firstSel.opacity||1)*100)}%</span></label>
-                      <input type="range" min="0.1" max="1" step="0.1" value={firstSel.opacity||1} onChange={e=>updateSelectedFixtures('opacity', parseFloat(e.target.value))} className="w-full" />
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>투명도 (Opacity)</span></label>
+                      <NumberStepper value={firstSel.opacity||1} min={0.1} max={1} step={0.1} onChange={v=>updateSelectedFixtures('opacity', v)} className="w-full" />
                     </div>
 
                     <div>
-                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>외곽선 굵기 (Thickness)</span><span>{firstSel.thickness || 2}px</span></label>
-                      <input type="range" min="0.5" max="20" step="0.5" value={firstSel.thickness || 2} onChange={e=>updateSelectedFixtures('thickness', parseFloat(e.target.value))} className="w-full" />
+                      <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>외곽선 굵기 (Thickness)</span></label>
+                      <NumberStepper value={firstSel.thickness || 2} min={0.5} max={20} step={0.5} unit="px" onChange={v=>updateSelectedFixtures('thickness', v)} className="w-full" />
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 border-t pt-3 mt-1">
@@ -2655,15 +2744,15 @@
                         </select>
                       </div>
                       <div>
-                        <label className="flex justify-between text-xs text-black dark:text-white font-bold mb-1"><span>모서리 둥글기</span><span>{firstSel.rx || 0}px</span></label>
-                        <input type="range" min="0" max="100" step="1" value={firstSel.rx || 0} onChange={e=>updateSelectedFixtures('rx', parseFloat(e.target.value))} className="w-full" />
+                        <label className="flex justify-between text-xs text-black dark:text-white font-bold mb-1"><span>모서리 둥글기</span></label>
+                        <NumberStepper value={firstSel.rx || 0} min={0} max={100} step={1} unit="px" onChange={v=>updateSelectedFixtures('rx', v)} className="w-full" />
                       </div>
                     </div>
 
                     {['fixture', 'structure'].includes(typeInfo.category) && (
                       <div className="border-t pt-3">
-                        <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>설치 높이 (3D, Height)</span><span>{(firstSel.zHeight != null ? firstSel.zHeight : RIG_HEIGHT).toFixed(1)}m</span></label>
-                        <input type="range" min="0" max="15" step="0.1" value={firstSel.zHeight != null ? firstSel.zHeight : RIG_HEIGHT} onChange={e=>updateSelectedFixtures('zHeight', parseFloat(e.target.value))} className="w-full" />
+                        <label className="flex justify-between text-xs font-bold text-black dark:text-white mb-1"><span>설치 높이 (3D, Height)</span></label>
+                        <NumberStepper value={Number((firstSel.zHeight != null ? firstSel.zHeight : RIG_HEIGHT).toFixed(1))} min={0} max={15} step={0.1} unit="m" onChange={v=>updateSelectedFixtures('zHeight', v)} className="w-full" />
                       </div>
                     )}
 
