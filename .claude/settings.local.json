@@ -64,7 +64,10 @@
       "Bash(npx --yes esbuild extract.jsx --outfile=out.js)",
       "mcp__ide__getDiagnostics",
       "Bash(chromium-cli --help)",
-      "Bash(npx --yes playwright install chromium)"
+      "Bash(npx --yes playwright install chromium)",
+      "Bash(pwd -W)",
+      "Bash(rm -f \"C:/Users/USER/AppData/Local/Temp/package.json\" \"C:/Users/USER/AppData/Local/Temp/package-lock.json\")",
+      "Bash(rm -rf \"C:/Users/USER/AppData/Local/Temp/node_modules\")"
     ]
   }
 }
